@@ -25,8 +25,8 @@
         <Authors>Ivan Gavryliuk (@aloneguid)</Authors>
         <Product />
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
-        <PackageProjectUrl>https://github.com/aloneguid/parquet-dotnet</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/aloneguid/parquet-dotnet</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/mukunku/parquet-dotnet</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/mukunku/parquet-dotnet</RepositoryUrl>
         <RepositoryType>GitHub</RepositoryType>
         <PackageIcon>icon.png</PackageIcon>
         <Description>Fully managed Apache Parquet implementation.</Description>

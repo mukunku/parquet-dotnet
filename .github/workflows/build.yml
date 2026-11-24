@@ -3,21 +3,14 @@
 on:
   push:
     branches:
-      - master
+      - main
     paths-ignore:
       - "docs/**"
-      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Create GitHub release"
-        required: false
-        default: false
-        type: boolean
 
   pull_request:
     branches:
-      - master
+      - main
     paths-ignore:
       - "docs/**"
 
@@ -129,43 +122,3 @@ jobs:
         with:
           name: bin
           path: artifacts/*
-
-  # to release, kick off this workflow manually from the GitHub UI and tick "Create GitHub release". This will also require approval.
-  release:
-    name: "🕋 Release library"
-    runs-on: ubuntu-latest
-    needs:
-      - test
-      - build
-    if: |
-      github.ref == 'refs/heads/master' &&
-      github.event_name == 'workflow_dispatch' &&
-      inputs.publish_release == true
-    environment:
-      name: release
-
-    steps:
-      - name: ⬇️ Download Library binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: bin
-          path: bin
-
-      - name: Restore version from file
-        run: echo "VERSION=$(cat bin/version.txt | xargs)" >> "$GITHUB_ENV"
-
-      - name: print release notes
-        run: cat bin/release-notes.md
-
-      - name: 📦 Publish to NuGet
-        run: dotnet nuget push bin/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-
-      - name: 📢 Create release
-        uses: softprops/action-gh-release@v2
-        if: ${{ !contains(env.VERSION, '-') }}
-        with:
-          tag_name: ${{ env.VERSION }}
-          name: ${{ env.VERSION }}
-          files: |
-            bin/*.nupkg
-          body_path: bin/release-notes.md
