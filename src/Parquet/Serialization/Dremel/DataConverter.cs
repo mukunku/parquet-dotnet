@@ -22,7 +22,11 @@ static class DataConverter {
     
     private static long ConvertTimeOnlyToLong(TimeOnly time) => time.ToTimeSpan().Ticks;
     private static TimeOnly ConvertLongToTimeOnly(long ticks) => TimeOnly.FromTimeSpan(TimeSpan.FromTicks(ticks));
-    
+
+    // INT32 TIME is always milliseconds per the parquet spec
+    private static int ConvertTimeOnlyToInt(TimeOnly time) => (int)(time.Ticks / TimeSpan.TicksPerMillisecond);
+    private static TimeOnly ConvertIntToTimeOnly(int millis) => new(millis * TimeSpan.TicksPerMillisecond);
+
     readonly record struct TypePair(Type From, Type To);
 
     private static MethodInfo M(string name) => typeof(DataConverter).GetMethod(
@@ -41,6 +45,8 @@ static class DataConverter {
             E<byte[], ROMB>(nameof(ConvertByteArrayToRomOfByte)),
             E<TimeOnly, long>(nameof(ConvertTimeOnlyToLong)),
             E<long, TimeOnly>(nameof(ConvertLongToTimeOnly)),
+            E<TimeOnly, int>(nameof(ConvertTimeOnlyToInt)),
+            E<int, TimeOnly>(nameof(ConvertIntToTimeOnly)),
         });
 
     #endregion

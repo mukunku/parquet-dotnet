@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Parquet.Encodings;
 using Parquet.Schema;
 using Parquet.Serialization;
+using Parquet.Serialization.Attributes;
 using Xunit;
 
 namespace Parquet.Test;
@@ -319,6 +322,74 @@ public class ParquetReaderOnTestFilesTest : TestBase {
 
         int?[] data = await ReadNullableValuesAsync<int>(rgr, fields[0]);
         Assert.Equal(new int?[] { 2023, 2024 }, data);
+    }
+
+    /// <summary>
+    /// TIME(NANOS) columns used to be plain-decoded as if they were microseconds, which either produced wrong values
+    /// or threw "Ticks must be between 0 and TimeOnly.MaxValue.Ticks". File written by pyarrow (time64 us and ns,
+    /// plain encoding, last value null).
+    /// </summary>
+    [Theory]
+    [InlineData("time_us")]
+    [InlineData("time_ns")]
+    public async Task Time_Int64_AllUnits_PlainDecode_FromPyArrow(string columnName) {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DataField field = r.Schema.DataFields.First(f => f.Name == columnName);
+        Assert.NotNull(field.SchemaElement);
+
+        // raw values as stored in the file
+        long?[] raw = await ReadNullableValuesAsync<long>(rgr, field);
+        Assert.Null(raw[4]);
+        byte[] source = MemoryMarshal.AsBytes(raw.Take(4).Select(v => v!.Value).ToArray().AsSpan()).ToArray();
+
+        TimeOnly[] expected = [
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999)
+        ];
+
+        var timeOnly = new TimeOnly[4];
+        Assert.Equal(4, ParquetPlainEncoder.Decode(source.AsSpan(), timeOnly.AsSpan(), field.SchemaElement));
+        Assert.Equal(expected, timeOnly);
+
+        var timeSpan = new TimeSpan[4];
+        Assert.Equal(4, ParquetPlainEncoder.Decode(source.AsSpan(), timeSpan.AsSpan(), field.SchemaElement));
+        Assert.Equal(expected.Select(t => t.ToTimeSpan()), timeSpan);
+
+        // and the encoder must write back exactly what pyarrow wrote
+        using var ms = new MemoryStream();
+        ParquetPlainEncoder.Encode(timeOnly, ms, field.SchemaElement);
+        Assert.Equal(source, ms.ToArray());
+        ms.SetLength(0);
+        ParquetPlainEncoder.Encode(timeSpan, ms, field.SchemaElement);
+        Assert.Equal(source, ms.ToArray());
+    }
+
+    class TimeMillisRecord {
+        [ParquetTime(Precision = TimeUnitPrecision.Millis)]
+        public TimeOnly? time_ms { get; set; }
+    }
+
+    /// <summary>
+    /// Deserializing a TIME(MILLIS) column into <see cref="TimeOnly"/> used to fail with "No coercion operator is
+    /// defined between types 'System.Int32' and 'System.Nullable`1[System.TimeOnly]'".
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Millis_Deserialize_FromPyArrow() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        IList<TimeMillisRecord> data = (await ParquetSerializer.DeserializeAsync<TimeMillisRecord>(s)).Data;
+
+        Assert.Equal(new TimeOnly?[] {
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999),
+            null
+        }, data.Select(d => d.time_ms));
     }
 
     [Fact]

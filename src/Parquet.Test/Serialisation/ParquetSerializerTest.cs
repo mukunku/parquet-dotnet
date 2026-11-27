@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Parquet.Data;
 using Parquet.File.Values.Primitives;
+using Parquet.Schema;
 using Parquet.Serialization;
 using Parquet.Serialization.Attributes;
 using Parquet.Test.Xunit;
@@ -1193,7 +1194,40 @@ public class ParquetSerializerTest : TestBase {
 
         Assert.Equivalent(data2, data);
     }
-    
+
+    record RecordContainingTimeOnlyMillis {
+        [ParquetTime(Precision = TimeUnitPrecision.Millis)]
+        public TimeOnly? NullableTime { get; set; }
+        [ParquetTime(Precision = TimeUnitPrecision.Millis)]
+        public TimeOnly Time { get; set; }
+    }
+
+    [Fact]
+    public async Task TimeOnly_Millis_Serde() {
+
+        var data = Enumerable.Range(0, 1_000).Select(i => new RecordContainingTimeOnlyMillis {
+            NullableTime = i == 0 ? null : TimeOnly.FromTimeSpan(TimeSpan.FromMilliseconds(i * 86_399)),
+            Time = TimeOnly.FromTimeSpan(TimeSpan.FromMilliseconds(i * 86_399 + 1)),
+        }).ToList();
+
+        using var ms = new MemoryStream();
+        await ParquetSerializer.SerializeAsync(data, ms);
+
+        ms.Position = 0;
+        IList<RecordContainingTimeOnlyMillis> data2 = (await ParquetSerializer.DeserializeAsync<RecordContainingTimeOnlyMillis>(ms)).Data;
+        Assert.Equivalent(data2, data);
+
+        // stored value must be real milliseconds since midnight, so other readers agree
+        ms.Position = 0;
+        await using ParquetReader reader = await ParquetReader.CreateAsync(ms);
+        using ParquetRowGroupReader rgr = reader.OpenRowGroupReader(0);
+        DataField timeField = reader.Schema.DataFields.First(f => f.Name == nameof(RecordContainingTimeOnlyMillis.Time));
+        Assert.NotNull(timeField.SchemaElement?.LogicalType?.TIME?.Unit.MILLIS);
+        var raw = new int[data.Count];
+        await rgr.ReadAsync<int>(timeField, raw.AsMemory());
+        Assert.Equal(data.Select(d => (int)(d.Time.Ticks / TimeSpan.TicksPerMillisecond)), raw);
+    }
+
     // todo: check that TimeOnly restrictions fire.
     
     // todo: same but for dictionary-based

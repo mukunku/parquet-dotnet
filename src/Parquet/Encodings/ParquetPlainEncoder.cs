@@ -389,6 +389,17 @@ static class ParquetPlainEncoder {
         return true;
     }
 
+    /// <summary>
+    /// INT64 TIME values are microseconds unless the logical type says nanoseconds (MILLIS is INT32 only).
+    /// </summary>
+    private static bool IsTimeNanos(SchemaElement tse) => tse.LogicalType?.TIME?.Unit.NANOS != null;
+
+    private static long Int64TimeToTicks(long value, SchemaElement tse) =>
+        IsTimeNanos(tse) ? value / 100 : value * 10;
+
+    private static long TicksToInt64Time(long ticks, SchemaElement tse) =>
+        IsTimeNanos(tse) ? ticks * 100 : ticks / 10;
+
     private static bool TryEncode(TimeOnly value, SchemaElement tse, out byte[] result) {
         switch(tse.Type) {
             case TType.INT32:
@@ -396,7 +407,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(ms);
                 return true;
             case TType.INT64:
-                long micros = value.Ticks / 10;
+                long micros = TicksToInt64Time(value.Ticks, tse);
                 result = BitConverter.GetBytes(micros);
                 return true;
             default:
@@ -442,7 +453,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(ms);
                 return true;
             case TType.INT64:
-                long micros = value.Ticks / 10;
+                long micros = TicksToInt64Time(value.Ticks, tse);
                 result = BitConverter.GetBytes(micros);
                 return true;
             default:
@@ -1063,7 +1074,7 @@ static class ParquetPlainEncoder {
                 break;
             case TType.INT64:
                 foreach(TimeOnly element in data) {
-                    long ticks = element.Ticks / 10;
+                    long ticks = TicksToInt64Time(element.Ticks, tse);
                     byte[] raw = BitConverter.GetBytes(ticks);
                     destination.Write(raw, 0, raw.Length);
                 }
@@ -1174,7 +1185,7 @@ static class ParquetPlainEncoder {
                     while(srcPos + sizeof(long) <= source.Length && i < data.Length) {
                         long lv = source.ReadInt64(srcPos);
                         srcPos += sizeof(long);
-                        data[i++] = new TimeOnly(lv * 10);
+                        data[i++] = new TimeOnly(Int64TimeToTicks(lv, tse));
                     }
                     return i;
                 }
@@ -1194,7 +1205,7 @@ static class ParquetPlainEncoder {
                 break;
             case TType.INT64:
                 foreach(TimeSpan ts in data) {
-                    long micros = ts.Ticks / 10;
+                    long micros = TicksToInt64Time(ts.Ticks, tse);
                     byte[] raw = BitConverter.GetBytes(micros);
                     destination.Write(raw, 0, raw.Length);
                 }
@@ -1222,7 +1233,7 @@ static class ParquetPlainEncoder {
                     while(srcPos + sizeof(long) <= source.Length && i < data.Length) {
                         long lv = source.ReadInt64(srcPos);
                         srcPos += sizeof(long);
-                        data[i++] = new TimeSpan(lv * 10);
+                        data[i++] = new TimeSpan(Int64TimeToTicks(lv, tse));
                     }
                     return i;
                 }
