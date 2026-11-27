@@ -1337,6 +1337,47 @@ public class ParquetSerializerTest : TestBase {
         });
     }
 
+    class TagsRecord {
+        public List<string?>? Tags { get; set; }
+    }
+
+    /// <summary>
+    /// Lists with nullable elements lost empty lists (read as null) and null elements (skipped), as the assembler
+    /// checked the element's definition level, which is one deeper than the list's (fork issue #4).
+    /// </summary>
+    [Fact]
+    public async Task List_NullableStrings_EmptyListsAndNullElements_Serde() {
+        var data = new List<TagsRecord> {
+            new() { Tags = ["a", null, "bc"] },
+            new() { Tags = [] },
+            new() { Tags = null },
+            new() { Tags = ["d"] }
+        };
+
+        await CompareAsync(data);
+    }
+
+    /// <summary>
+    /// Untyped list elements must follow <see cref="ParquetOptions.PreferUntypedString"/> like single values; strings
+    /// used to come back as <see cref="ReadOnlyMemory{Char}"/>. Lists with nullable elements also lost empty lists
+    /// and null elements (fork issue #4). Written by pyarrow 23.0.1 from
+    /// <c>[['a', 'bc'], [], None, ['d']]</c> (required elements) and <c>[['a', None, 'bc'], [], None, ['d']]</c>.
+    /// Null lists have no key, as for any null value.
+    /// </summary>
+    [Theory]
+    [InlineData("special/list_required_elements_pyarrow.parquet", new[] { "a", "bc" })]
+    [InlineData("special/list_optional_elements_pyarrow.parquet", new[] { "a", null, "bc" })]
+    public async Task List_Strings_from_pyarrow_Dict(string fileName, string?[] firstRow) {
+        using Stream s = OpenTestFile(fileName);
+        DeserializationResult<Dictionary<string, object>> result = await ParquetSerializer.DeserializeUntypedAsync(s);
+
+        Assert.Equal(4, result.Data.Count);
+        Assert.Equal(firstRow, Assert.IsType<List<string>>(result.Data[0]["tags"]));
+        Assert.Empty(Assert.IsType<List<string>>(result.Data[1]["tags"]));
+        Assert.False(result.Data[2].ContainsKey("tags"));
+        Assert.Equal(["d"], Assert.IsType<List<string>>(result.Data[3]["tags"]));
+    }
+
     class ClassWithPreinitializedDict {
         public Dictionary<DateTime, double> DateTimeDoubleDict { get; set; } = new();
     }
