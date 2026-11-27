@@ -1228,6 +1228,37 @@ public class ParquetSerializerTest : TestBase {
         Assert.Equal(data.Select(d => (int)(d.Time.Ticks / TimeSpan.TicksPerMillisecond)), raw);
     }
 
+    [Fact]
+    public async Task TimeOnly_Micros_Serde() {
+
+        var data = Enumerable.Range(0, 1_000).Select(i => new RecordContainingDateAndTimeOnly {
+            NullableTime = i == 0 ? null : TimeOnly.FromTimeSpan(TimeSpan.FromTicks(i * 864_000_001L)),
+            Time = TimeOnly.FromTimeSpan(TimeSpan.FromMicroseconds(i * 86_399_999L + 1)),
+        }).ToList();
+
+        using var ms = new MemoryStream();
+        await ParquetSerializer.SerializeAsync(data, ms);
+
+        // stored value must be real microseconds since midnight (used to be .NET ticks), so other readers agree
+        ms.Position = 0;
+        await using(ParquetReader reader = await ParquetReader.CreateAsync(ms)) {
+            using ParquetRowGroupReader rgr = reader.OpenRowGroupReader(0);
+            DataField timeField = reader.Schema.DataFields.First(f => f.Name == nameof(RecordContainingDateAndTimeOnly.Time));
+            Assert.NotNull(timeField.SchemaElement?.LogicalType?.TIME?.Unit.MICROS);
+            var raw = new long[data.Count];
+            await rgr.ReadAsync<long>(timeField, raw.AsMemory());
+            Assert.Equal(data.Select(d => d.Time.Ticks / TimeSpan.TicksPerMicrosecond), raw);
+        }
+
+        // sub-microsecond ticks are truncated, as micros is the highest precision TIME supports for TimeOnly
+        ms.Position = 0;
+        IList<RecordContainingDateAndTimeOnly> data2 = (await ParquetSerializer.DeserializeAsync<RecordContainingDateAndTimeOnly>(ms)).Data;
+        Assert.Equal(
+            data.Select(d => d.NullableTime is { } t ? new TimeOnly(t.Ticks / 10 * 10) : (TimeOnly?)null),
+            data2.Select(d => d.NullableTime));
+        Assert.Equal(data.Select(d => d.Time), data2.Select(d => d.Time));
+    }
+
     // todo: check that TimeOnly restrictions fire.
     
     // todo: same but for dictionary-based

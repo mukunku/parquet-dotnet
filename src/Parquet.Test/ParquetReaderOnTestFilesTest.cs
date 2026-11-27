@@ -392,6 +392,44 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         }, data.Select(d => d.time_ms));
     }
 
+    class TimeMicrosRecord {
+        public TimeOnly? time_us { get; set; }
+    }
+
+    /// <summary>
+    /// Deserializing TIME(MICROS) into <see cref="TimeOnly"/> used to treat the stored value as .NET ticks,
+    /// producing values 10x too small.
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Micros_Deserialize_FromPyArrow() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        IList<TimeMicrosRecord> data = (await ParquetSerializer.DeserializeAsync<TimeMicrosRecord>(s)).Data;
+
+        Assert.Equal(new TimeOnly?[] {
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999),
+            null
+        }, data.Select(d => d.time_us));
+    }
+
+    class TimeNanosIntoTimeOnlyRecord {
+        public TimeOnly? time_ns { get; set; }
+    }
+
+    /// <summary>
+    /// TIME(NANOS) and TimeOnly (micros) are both INT64, so a type check alone let the data be misread.
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Nanos_Deserialize_PrecisionMismatchThrows() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        InvalidCastException ex = await Assert.ThrowsAsync<InvalidCastException>(
+            () => ParquetSerializer.DeserializeAsync<TimeNanosIntoTimeOnlyRecord>(s));
+        Assert.Contains("precision", ex.Message);
+        Assert.Contains("time_ns", ex.Message);
+    }
+
     [Fact]
     public async Task HyparquetCompressed() {
         using Stream s = OpenTestFile("hyparquet.snappy.parquet");

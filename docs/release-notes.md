@@ -1,3 +1,14 @@
+# 6.2.0
+
+## Bugs fixed
+- Class serializer wrote `TimeOnly` values as .NET ticks into columns annotated as `TIME(MICROS)`, so other readers (pyarrow, DuckDB, Spark etc.) saw wrong times, typically wrapped past midnight (e.g. `10:30` read as `09:00`). Reading had the same mistake in reverse, so files from other writers came back 10x too small. `TimeOnly` is now stored and read as real microseconds since midnight.
+- Class serializer could not read or write `TimeOnly` with `[ParquetTime(Precision = TimeUnitPrecision.Millis)]` at all ("No coercion operator is defined between types...").
+- Class serializer now throws a clear `InvalidCastException` when the class time precision does not match the file's (e.g. a `TimeOnly` property, which is micros, against a `TIME(NANOS)` column) instead of silently misreading the data.
+- Plain decoder ignored `TIME(NANOS)` and decoded values as microseconds, producing wrong values or throwing "Ticks must be between 0 and TimeOnly.MaxValue.Ticks".
+
+## Breaking changes
+- `TimeOnly` columns **written by 6.1.x class serializer** contain .NET ticks, not microseconds. 6.2.0 reads them the same way every other Parquet reader does: values come back 10x too large, and times after about 02:24 throw. If you have such files, read them with 6.1.x and rewrite them with 6.2.0. Files from other writers and from Parquet.Net before 6.1.0 are not affected.
+
 # 6.1.0
 
 ## New

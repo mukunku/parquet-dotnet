@@ -20,8 +20,9 @@ static class DataConverter {
     private static byte[] ConvertRomOfByteToByteArray(ReadOnlyMemory<byte> memory) => memory.ToArray();
     private static ReadOnlyMemory<byte> ConvertByteArrayToRomOfByte(byte[] array) => array.AsMemory();
     
-    private static long ConvertTimeOnlyToLong(TimeOnly time) => time.ToTimeSpan().Ticks;
-    private static TimeOnly ConvertLongToTimeOnly(long ticks) => TimeOnly.FromTimeSpan(TimeSpan.FromTicks(ticks));
+    // We only allow INT64 TimeOnly to be microseconds, ParquetTimeAttribute rejects other precisions for TimeOnly
+    private static long ConvertTimeOnlyToLong(TimeOnly time) => time.Ticks / TimeSpan.TicksPerMicrosecond;
+    private static TimeOnly ConvertLongToTimeOnly(long micros) => new(micros * TimeSpan.TicksPerMicrosecond);
 
     // INT32 TIME is always milliseconds per the parquet spec
     private static int ConvertTimeOnlyToInt(TimeOnly time) => (int)(time.Ticks / TimeSpan.TicksPerMillisecond);

@@ -396,6 +396,12 @@ public static class ParquetSerializer {
                 throw new InvalidCastException($"class type ({assemblerField.ClrType}) does not match file's type ({fileField.ClrType}) in field '{assemblerField.Path}'");
         }
 
+        // same CLR type can still carry different time units (e.g. micros and nanos are both long)
+        if(assemblerField is TimeDataField classTime && fileField is TimeDataField fileTime &&
+           classTime.Precision != fileTime.Precision) {
+            throw new InvalidCastException($"class time precision ({classTime.Precision}) does not match file's time precision ({fileTime.Precision}) in field '{assemblerField.Path}'");
+        }
+
 
         // make final result
         DataField r = (DataField)assemblerField.Clone();
