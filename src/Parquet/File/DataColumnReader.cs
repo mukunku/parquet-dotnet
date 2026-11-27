@@ -172,13 +172,16 @@ class DataColumnReader {
         await using(Stream src = _inputStream.Sub(_inputStream.Position, ph.CompressedPageSize)) {
             await src.CopyToAsync(pageMemory.Memory, cancellationToken);
         }
-        int dataUsed = 0;
+        // V2 levels are stored uncompressed in front of the values and their sizes are always given in the header.
+        // Skip them by those sizes, not by what the schema implies: some writers emit levels for required columns.
+        int rlLength = ph.DataPageHeaderV2.RepetitionLevelsByteLength;
+        int dlLength = ph.DataPageHeaderV2.DefinitionLevelsByteLength;
+        int dataUsed = rlLength + dlLength;
 
         if(_dataField.MaxRepetitionLevel > 0) {
             int levelsRead = ReadLevels(pageMemory.Span,
                 _dataField.MaxRepetitionLevel, rc.RepetitionLevelsToReadInto,
-                ph.DataPageHeaderV2.NumValues, ph.DataPageHeaderV2.RepetitionLevelsByteLength, out int usedLength);
-            dataUsed += usedLength;
+                ph.DataPageHeaderV2.NumValues, rlLength, out _);
             rc.MarkRepetitionLevels(levelsRead);
 
             throw new NotImplementedException();
@@ -186,10 +189,9 @@ class DataColumnReader {
 
         if(_dataField.MaxDefinitionLevel > 0) {
             int levelsRead = ReadLevels(
-                pageMemory.Memory.Span.Slice(dataUsed), _dataField.MaxDefinitionLevel,
+                pageMemory.Memory.Span.Slice(rlLength), _dataField.MaxDefinitionLevel,
                 rc.DefinitionLevelsToReadInto,
-                ph.DataPageHeaderV2.NumValues, ph.DataPageHeaderV2.DefinitionLevelsByteLength, out int usedLength);
-            dataUsed += usedLength;
+                ph.DataPageHeaderV2.NumValues, dlLength, out _);
             rc.MarkDefinitionLevels(levelsRead, _dataField.MaxDefinitionLevel);
         }
 

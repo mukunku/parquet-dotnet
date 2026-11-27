@@ -5,6 +5,7 @@
 - Class serializer could not read or write `TimeOnly` with `[ParquetTime(Precision = TimeUnitPrecision.Millis)]` at all ("No coercion operator is defined between types...").
 - Class serializer now throws a clear `InvalidCastException` when the class time precision does not match the file's (e.g. a `TimeOnly` property, which is micros, against a `TIME(NANOS)` column) instead of silently misreading the data.
 - Plain decoder ignored `TIME(NANOS)` and decoded values as microseconds, producing wrong values or throwing "Ticks must be between 0 and TimeOnly.MaxValue.Ticks".
+- Data page V2 reader skipped repetition/definition levels based on the schema instead of the byte lengths in the page header. Pages carrying levels the schema does not expect (e.g. definition levels on a required column) were decompressed from the wrong offset, failing with "The archive entry was compressed using an unsupported compression method" for GZIP.
 
 ## Breaking changes
 - `TimeOnly` columns **written by 6.1.x class serializer** contain .NET ticks, not microseconds. 6.2.0 reads them the same way every other Parquet reader does: values come back 10x too large, and times after about 02:24 throw. If you have such files, read them with 6.1.x and rewrite them with 6.2.0. Files from other writers and from Parquet.Net before 6.1.0 are not affected.

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Parquet.Data;
 using Parquet.Schema;
@@ -57,5 +58,22 @@ public class CompressionTest : TestBase {
 
         Assert.True(column1.Values.Length > 0);
         Assert.True(column2.Values.Length > 0);
+    }
+
+    [Fact]
+    public async Task DataPageV2_gzip_required_column_with_definition_levels() {
+        // Data page V2 with GZIP, where the page carries definition levels although the column is REQUIRED.
+        // Levels must be skipped using the page header byte lengths, otherwise decompression starts inside the
+        // levels and fails with "The archive entry was compressed using an unsupported compression method".
+        // Made by writing a nullable (no nulls) int64 column with pyarrow 23.0.1, data_page_version="2.0",
+        // compression="gzip", then rewriting only the footer to mark the column REQUIRED and drop size statistics.
+        // pyarrow reads the resulting file correctly.
+        await using ParquetReader reader = await ParquetReader.CreateAsync(OpenTestFile("special/v2_gzip_required_with_def_levels.parquet"));
+
+        DataField field = Assert.Single(reader.Schema.GetDataFields());
+        Assert.Equal(0, field.MaxDefinitionLevel);
+
+        RawColumnData<long> column = await ReadColumn<long>(reader, field);
+        Assert.Equal(Enumerable.Range(0, 1000).Select(i => (long)i), column.Values.ToArray());
     }
 }
