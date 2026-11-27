@@ -491,14 +491,14 @@ public class ParquetReaderOnTestFilesTest : TestBase {
             () => ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields[0]));
         Assert.Contains("'ts'", ex.Message);
         Assert.Contains("julian day 5373485", ex.Message);
-        Assert.Contains(nameof(Int96OutOfRangeHandling.Clamp), ex.Message);
+        Assert.Contains(nameof(DateTimeOutOfRangeHandling.Clamp), ex.Message);
     }
 
     [Fact]
     public async Task Int96_OutOfRange_Clamp() {
         using Stream s = OpenTestFile(Int96OutOfRangeFile);
         await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
-            Int96OutOfRangeHandling = Int96OutOfRangeHandling.Clamp
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
         });
         using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
 
@@ -506,6 +506,67 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         Assert.Equal(new DateTime?[] {
             Int96OkValue, DateTime.MaxValue, Int96OkValue, DateTime.MinValue, null, Int96OkValue
         }, values);
+    }
+
+    // Written by DuckDB v1.5.6 (plain encoding). Columns: id, d (DATE), ts (TIMESTAMP micros, not UTC adjusted).
+    // Rows: 2024-05-17 [08:30], 12345-01-01, infinity, -infinity, 0000-06-15.
+    // DuckDB stores infinity / -infinity as int32 (date) or int64 (timestamp) max / -max.
+    private const string DuckDbOutOfRangeDatesFile = "special/duckdb_out_of_range_dates.parquet";
+
+    [Theory]
+    [InlineData("d", false, "DATE value 3789391")]
+    [InlineData("d", true, "DATE value 3789391")]
+    [InlineData("ts", false, "TIMESTAMP value 327403382400000000")]
+    public async Task DateAndTimestamp_OutOfRange_ThrowsByDefault(string column, bool useDateOnly, string expectedValue) {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            UseDateOnlyTypeForDates = useDateOnly
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField field = r.Schema.DataFields.First(f => f.Name == column);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(() => field.ClrType == typeof(DateOnly)
+            ? ReadNullableValuesAsync<DateOnly>(rgr, field)
+            : ReadNullableValuesAsync<DateTime>(rgr, field));
+        Assert.Contains($"'{column}'", ex.Message);
+        Assert.Contains(expectedValue, ex.Message);
+        Assert.Contains(nameof(DateTimeOutOfRangeHandling.Clamp), ex.Message);
+    }
+
+    [Fact]
+    public async Task DateAndTimestamp_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] dates = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields.First(f => f.Name == "d"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17), DateTime.MaxValue, DateTime.MaxValue, DateTime.MinValue, DateTime.MinValue
+        }, dates);
+
+        DateTime?[] timestamps = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields.First(f => f.Name == "ts"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17, 8, 30, 0), DateTime.MaxValue, DateTime.MaxValue, DateTime.MinValue, DateTime.MinValue
+        }, timestamps);
+        // kind is unchanged by clamping: this column is not UTC adjusted
+        Assert.All(timestamps, t => Assert.Equal(DateTimeKind.Local, t!.Value.Kind));
+    }
+
+    [Fact]
+    public async Task DateOnly_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            UseDateOnlyTypeForDates = true,
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateOnly?[] dates = await ReadNullableValuesAsync<DateOnly>(rgr, r.Schema.DataFields.First(f => f.Name == "d"));
+        Assert.Equal(new DateOnly?[] {
+            new DateOnly(2024, 5, 17), DateOnly.MaxValue, DateOnly.MaxValue, DateOnly.MinValue, DateOnly.MinValue
+        }, dates);
     }
 
     [Fact]

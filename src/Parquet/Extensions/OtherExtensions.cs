@@ -19,10 +19,6 @@ static class OtherExtensions {
         return UnixEpoch.AddMilliseconds(unixMilliseconds);
     }
 
-    public static DateTime AsUnixMillisecondsInDateTime(this long unixMilliseconds) {
-        return UnixEpoch.AddMilliseconds(unixMilliseconds);
-    }
-
     public static long ToUnixMilliseconds(this DateTime dto) {
         long milliseconds = dto.Ticks / TimeSpan.TicksPerMillisecond;
         return milliseconds - UnixEpochMilliseconds;
@@ -40,9 +36,76 @@ static class OtherExtensions {
     }
 #endif
 
-    public static DateTime AsUnixDaysInDateTime(this int unixDays) {
-        return UnixEpoch.AddDays(unixDays);
+    /// <summary>Day number (as in <see cref="DateOnly.DayNumber"/>) of 1970-01-01.</summary>
+    private const int UnixEpochDayNumber = 719_162;
+
+    /// <summary>
+    /// Converts ticks since 0001-01-01 into <see cref="DateTime"/>. Ticks are <see cref="Int128"/> so that callers can
+    /// compute them from any raw file value without overflowing. Returns false only when the value is out of range and
+    /// <paramref name="outOfRange"/> is <see cref="DateTimeOutOfRangeHandling.Throw"/>; the caller then throws
+    /// <see cref="OutOfRangeException"/>, so that the error message is only built when needed.
+    /// </summary>
+    public static bool TryTicksToDateTime(Int128 ticks, DateTimeKind kind, DateTimeOutOfRangeHandling outOfRange,
+        out DateTime result) {
+        if(ticks >= 0 && ticks <= DateTime.MaxValue.Ticks) {
+            result = new DateTime((long)ticks, kind);
+            return true;
+        }
+
+        if(outOfRange == DateTimeOutOfRangeHandling.Clamp) {
+            result = DateTime.SpecifyKind(ticks < 0 ? DateTime.MinValue : DateTime.MaxValue, kind);
+            return true;
+        }
+
+        result = default;
+        return false;
     }
+
+    /// <summary>
+    /// Converts a unix time value (in units of <paramref name="ticksPerUnit"/>, e.g. 10 for microseconds) into
+    /// <see cref="DateTime"/>, see <see cref="TryTicksToDateTime"/>.
+    /// </summary>
+    public static bool TryUnixToDateTime(long value, long ticksPerUnit, DateTimeKind kind,
+        DateTimeOutOfRangeHandling outOfRange, out DateTime result) =>
+        TryTicksToDateTime((Int128)value * ticksPerUnit + UnixEpoch.Ticks, kind, outOfRange, out result);
+
+    /// <summary>
+    /// Converts a unix time value expressed in nanoseconds into <see cref="DateTime"/>, truncating to ticks.
+    /// </summary>
+    public static bool TryUnixNanosToDateTime(long nanos, DateTimeKind kind,
+        DateTimeOutOfRangeHandling outOfRange, out DateTime result) =>
+        TryTicksToDateTime((Int128)(nanos / 100) + UnixEpoch.Ticks, kind, outOfRange, out result);
+
+    /// <summary>
+    /// Converts days since 1970-01-01 (parquet DATE) into <see cref="DateOnly"/>, see <see cref="TryTicksToDateTime"/>.
+    /// </summary>
+    public static bool TryUnixDaysToDateOnly(int unixDays, DateTimeOutOfRangeHandling outOfRange, out DateOnly result) {
+        long dayNumber = (long)unixDays + UnixEpochDayNumber;
+        if(dayNumber >= DateOnly.MinValue.DayNumber && dayNumber <= DateOnly.MaxValue.DayNumber) {
+            result = DateOnly.FromDayNumber((int)dayNumber);
+            return true;
+        }
+
+        if(outOfRange == DateTimeOutOfRangeHandling.Clamp) {
+            result = dayNumber < 0 ? DateOnly.MinValue : DateOnly.MaxValue;
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Exception for a value that <see cref="DateTimeOutOfRangeHandling.Throw"/> rejected.
+    /// </summary>
+    /// <param name="rawValue">Description of the raw file value, e.g. "DATE value 2147483647 (days since 1970-01-01)"</param>
+    /// <param name="columnName">Column the value belongs to</param>
+    /// <param name="targetType">Type the value was converted to</param>
+    public static ParquetException OutOfRangeException(string rawValue, string? columnName, Type targetType) =>
+        new ParquetException(
+            $"{rawValue} in column '{columnName}' is outside the range {targetType.Name} can represent (years 1 to 9999). " +
+            $"Set {nameof(ParquetOptions)}.{nameof(ParquetOptions.DateTimeOutOfRangeHandling)} to " +
+            $"{nameof(DateTimeOutOfRangeHandling.Clamp)} to clamp such values.");
 
     public static int ToUnixDays(this DateTime dto) {
         TimeSpan diff = dto - UnixEpoch;

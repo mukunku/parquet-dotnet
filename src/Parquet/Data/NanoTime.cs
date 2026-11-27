@@ -51,23 +51,14 @@ readonly struct NanoTime {
     /// </summary>
     private const long JulianDayOfDateTimeMinValue = 1721426;
 
-    public DateTime ToDateTime(Int96OutOfRangeHandling outOfRange = Int96OutOfRangeHandling.Throw, string? columnName = null) {
+    public DateTime ToDateTime(DateTimeOutOfRangeHandling outOfRange = DateTimeOutOfRangeHandling.Throw, string? columnName = null) {
         // Int128 so that any julian day / nanos combination, including garbage, cannot overflow
         Int128 ticks = ((Int128)_julianDay - JulianDayOfDateTimeMinValue) * TimeSpan.TicksPerDay + (_timeOfDayNanos / 100);
 
-        if(ticks < 0 || ticks > DateTime.MaxValue.Ticks) {
-            switch(outOfRange) {
-                case Int96OutOfRangeHandling.Clamp:
-                    return ticks < 0 ? DateTime.MinValue : DateTime.MaxValue;
-                default:
-                    throw new ParquetException(
-                        $"INT96 timestamp (julian day {_julianDay}, {_timeOfDayNanos} nanoseconds of day) in column '{columnName}' " +
-                        $"is outside the range {nameof(DateTime)} can represent. " +
-                        $"Set {nameof(ParquetOptions)}.{nameof(ParquetOptions.Int96OutOfRangeHandling)} to " +
-                        $"{nameof(Int96OutOfRangeHandling.Clamp)} to clamp such values.");
-            }
-        }
+        if(!OtherExtensions.TryTicksToDateTime(ticks, DateTimeKind.Unspecified, outOfRange, out DateTime result))
+            throw OtherExtensions.OutOfRangeException(
+                $"INT96 timestamp (julian day {_julianDay}, {_timeOfDayNanos} nanoseconds of day)", columnName, typeof(DateTime));
 
-        return new DateTime((long)ticks, DateTimeKind.Unspecified);
+        return result;
     }
 }

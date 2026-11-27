@@ -197,7 +197,7 @@ static class ParquetPlainEncoder {
             elementsRead = Decode(source, span.Slice(0, count), tse, options);
         } else if(t == typeof(DateOnly)) {
             Span<DateOnly> span = dest.AsSpan<T, DateOnly>();
-            elementsRead = Decode(source, span.Slice(0, count), tse);
+            elementsRead = Decode(source, span.Slice(0, count), tse, options);
         } else if(t == typeof(TimeOnly)) {
             Span<TimeOnly> span = dest.AsSpan<T, TimeOnly>();
             elementsRead = Decode(source, span.Slice(0, count), tse);
@@ -317,7 +317,7 @@ static class ParquetPlainEncoder {
         } else if(tse.Type == TType.INT96) {
             if(value.Length == 12)
                 if(options?.TreatBigIntegersAsDates ?? false)
-                    result = new NanoTime(value.AsSpan()).ToDateTime(options.Int96OutOfRangeHandling, tse.Name);
+                    result = new NanoTime(value.AsSpan()).ToDateTime(options.DateTimeOutOfRangeHandling, tse.Name);
                 else
                     result = new BigInteger(value);
             else
@@ -1084,13 +1084,18 @@ static class ParquetPlainEncoder {
     }
 
     public static int Decode(Span<byte> source, Span<DateTime> data, SchemaElement tse, ParquetOptions? options = null) {
+        DateTimeOutOfRangeHandling outOfRange = options?.DateTimeOutOfRangeHandling ?? DateTimeOutOfRangeHandling.Throw;
+
         switch(tse.Type) {
             case TType.INT32:
                 int[] ints = ArrayPool<int>.Shared.Rent(data.Length);
                 try {
                     int intsRead = Decode(source, ints.AsSpan(0, data.Length));
-                    for(int i = 0; i < intsRead; i++)
-                        data[i] = ints[i].AsUnixDaysInDateTime();
+                    for(int i = 0; i < intsRead; i++) {
+                        if(!OtherExtensions.TryUnixToDateTime(ints[i], TimeSpan.TicksPerDay, DateTimeKind.Utc, outOfRange, out data[i]))
+                            throw OtherExtensions.OutOfRangeException(
+                                $"DATE value {ints[i]} (days since 1970-01-01)", tse.Name, typeof(DateTime));
+                    }
                     return intsRead;
                 } finally {
                     ArrayPool<int>.Shared.Return(ints);
@@ -1099,47 +1104,50 @@ static class ParquetPlainEncoder {
                 long[] longs = ArrayPool<long>.Shared.Rent(data.Length);
                 try {
                     int longsRead = Decode(source, longs.AsSpan(0, data.Length));
+
+                    // unit and kind are the same for the whole column
+                    TimeUnit? unit = tse.LogicalType?.TIMESTAMP?.Unit;
+                    bool isNanos = unit?.NANOS is not null;
+                    long ticksPerUnit;
+                    string unitName;
                     if(tse.LogicalType?.TIMESTAMP is not null) {
-                        for(int i = 0; i < longsRead; i++) {
-                            if(tse.LogicalType.TIMESTAMP.Unit.MILLIS is not null) {
-                                DateTime dt = longs[i].AsUnixMillisecondsInDateTime();
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else if(tse.LogicalType.TIMESTAMP.Unit.MICROS is not null) {
-                                long lv = longs[i];
-                                long microseconds = lv % 1000;
-                                lv /= 1000;
-                                DateTime dt = lv.AsUnixMillisecondsInDateTime().AddTicks(microseconds * 10);
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else if(tse.LogicalType.TIMESTAMP.Unit.NANOS is not null) {
-                                long lv = longs[i];
-                                long nanoseconds = lv % 1000000;
-                                lv /= 1000000;
-                                DateTime dt = lv.AsUnixMillisecondsInDateTime().AddTicks(nanoseconds / 100); // 1 tick = 100 nanoseconds
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else {
-                                throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
-                            }
+                        if(unit!.MILLIS is not null) {
+                            ticksPerUnit = TimeSpan.TicksPerMillisecond;
+                            unitName = "milliseconds";
+                        } else if(unit.MICROS is not null) {
+                            ticksPerUnit = TimeSpan.TicksPerMicrosecond;
+                            unitName = "microseconds";
+                        } else if(isNanos) {
+                            ticksPerUnit = 0;   // not used, nanos are divided instead
+                            unitName = "nanoseconds";
+                        } else {
+                            throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
                         }
                     } else if(tse.IsTimestampMicros()) {
-                        for(int i = 0; i < longsRead; i++) {
-                            long lv = longs[i];
-                            long microseconds = lv % 1000;
-                            lv /= 1000;
-                            data[i] = lv.AsUnixMillisecondsInDateTime().AddTicks(microseconds * 10);
-                        }
+                        ticksPerUnit = TimeSpan.TicksPerMicrosecond;
+                        unitName = "microseconds";
                     } else {
-                        for(int i = 0; i < longsRead; i++)
-                            data[i] = longs[i].AsUnixMillisecondsInDateTime();
+                        ticksPerUnit = TimeSpan.TicksPerMillisecond;
+                        unitName = "milliseconds";
+                    }
+
+                    DateTimeKind kind = tse.LogicalType?.TIMESTAMP is not null
+                        ? (tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local)
+                        : DateTimeKind.Utc;
+
+                    for(int i = 0; i < longsRead; i++) {
+                        bool ok = isNanos
+                            ? OtherExtensions.TryUnixNanosToDateTime(longs[i], kind, outOfRange, out data[i])
+                            : OtherExtensions.TryUnixToDateTime(longs[i], ticksPerUnit, kind, outOfRange, out data[i]);
+                        if(!ok)
+                            throw OtherExtensions.OutOfRangeException(
+                                $"TIMESTAMP value {longs[i]} ({unitName} since 1970-01-01)", tse.Name, typeof(DateTime));
                     }
                     return longsRead;
                 } finally {
                     ArrayPool<long>.Shared.Return(longs);
                 }
             case TType.INT96: {
-                    Int96OutOfRangeHandling outOfRange = options?.Int96OutOfRangeHandling ?? Int96OutOfRangeHandling.Throw;
                     int offset = 0;
                     int els = 0;
                     while(offset + NanoTime.BinarySize <= source.Length && els < data.Length) {
@@ -1153,12 +1161,16 @@ static class ParquetPlainEncoder {
         }
     }
 
-    public static int Decode(Span<byte> source, Span<DateOnly> data, SchemaElement tse) {
+    public static int Decode(Span<byte> source, Span<DateOnly> data, SchemaElement tse, ParquetOptions? options = null) {
+        DateTimeOutOfRangeHandling outOfRange = options?.DateTimeOutOfRangeHandling ?? DateTimeOutOfRangeHandling.Throw;
         int[] ints = ArrayPool<int>.Shared.Rent(data.Length);
         try {
             int intsRead = Decode(source, ints.AsSpan(0, data.Length));
-            for(int i = 0; i < intsRead; i++)
-                data[i] = DateOnly.FromDateTime(ints[i].AsUnixDaysInDateTime());
+            for(int i = 0; i < intsRead; i++) {
+                if(!OtherExtensions.TryUnixDaysToDateOnly(ints[i], outOfRange, out data[i]))
+                    throw OtherExtensions.OutOfRangeException(
+                        $"DATE value {ints[i]} (days since 1970-01-01)", tse.Name, typeof(DateOnly));
+            }
             return intsRead;
         } finally {
             ArrayPool<int>.Shared.Return(ints);
