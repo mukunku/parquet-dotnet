@@ -69,7 +69,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [630](630.md) | [BUG]: Serialize doesn't handle empty + null list of nullable type | 2025-07-20 | Recovered | |
 | [634](634.md) | [BUG]: Floor has incorrect installer hash when fetched from winget | 2025-08-02 | Recovered | |
 | [635](635.md) | [BUG]: Very large parquet files cannot be read | 2025-08-03 | Partially recovered | |
-| [638](638.md) | [BUG]: `DivideByZeroException` when reading boolean columns in Parquet.Net 5.x (RLE decoding bug) | 2025-08-12 | Recovered | |
+| [638](638.md) | [BUG]: `DivideByZeroException` when reading boolean columns in Parquet.Net 5.x (RLE decoding bug) | 2025-08-12 | Recovered | 6.2.0 |
 | [640](640.md) | Possibly faulty field skipping for thrift structs during reading | 2025-08-15 | Recovered | |
 | [642](642.md) | DELTA_BINARY_PACKED on DateTime | 2025-08-31 | Recovered | |
 | [643](643.md) | Inconsistent results when encoding Boolean values | 2025-09-05 | Partially recovered | 5.4.0 |

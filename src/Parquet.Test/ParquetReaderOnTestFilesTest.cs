@@ -455,6 +455,29 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         DeserializationResult<Dictionary<string, object>> result = await ParquetSerializer.DeserializeUntypedAsync(s);
     }
 
+    /// <summary>
+    /// RLE encoded booleans, which pyarrow writes by default in data page V2. They use bit width 1 and, in data pages,
+    /// a 4 byte length prefix. The reader used bit width 0 without the prefix, so every value came back false (in v5 it
+    /// threw DivideByZeroException instead, issue #638). Written by pyarrow 23.0.1: 500 x true, then
+    /// [true, false, null, true] x 300, then 100 x false, i.e. both RLE runs and bit-packed groups.
+    /// </summary>
+    [Theory]
+    [InlineData("issues/638_bool_rle_v1.parquet")]
+    [InlineData("issues/638_bool_rle_v2.parquet")]
+    public async Task BooleanRle_638(string fileName) {
+        using Stream s = OpenTestFile(fileName);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        bool?[] actual = await ReadNullableValuesAsync<bool>(rgr, r.Schema.DataFields[0]);
+
+        bool?[] expected = [
+            .. Enumerable.Repeat<bool?>(true, 500),
+            .. Enumerable.Range(0, 1200).Select(i => (i % 4) switch { 1 => (bool?)false, 2 => null, _ => true }),
+            .. Enumerable.Repeat<bool?>(false, 100)];
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public async Task NestedGroup_681() {
         using Stream s = OpenTestFile("issues/681_nested.parquet");

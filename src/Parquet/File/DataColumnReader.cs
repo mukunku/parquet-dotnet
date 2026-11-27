@@ -261,10 +261,12 @@ class DataColumnReader {
                         // todo: we can optimise this by implementing boolean RLE decoder
                         Span<bool> dest = rc.ValuesToReadInto.AsSpan<T, bool>();
 
+                        // Booleans are RLE encoded with bit width 1, and in data pages (V1 and V2) the encoded data
+                        // is prefixed with its 4 byte length, so let the decoder read it (spanLength: null).
                         int[] tmp = new int[dest.Length];
                         int read = RleBitpackedHybridEncoder.Decode(src,
-                            _schemaElement!.TypeLength ?? 0,
-                            src.Length, out int usedLength, tmp.AsSpan(), totalValuesInPage);
+                            bitWidth: 1,
+                            spanLength: null, out int usedLength, tmp.AsSpan(), totalValuesInPage);
 
                         // copy back to bool array
                         for(int i = 0; i < read; i++) {
