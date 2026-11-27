@@ -1,10 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Parquet.Data;
 using Parquet.Encodings;
 using Parquet.Schema;
 using Parquet.Serialization;
@@ -447,6 +449,60 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         string?[] values = await ReadStringValuesAsync(rgr, df);
 
         Assert.Single(values);
+    }
+
+    /// <summary>
+    /// Implicit lists (repeated groups with no LIST annotation) with several fields, top level and inside a struct:
+    ///   required int32 id;
+    ///   repeated group addresses { required binary street (String); optional int32 zip; }
+    ///   required group person { optional binary name (String); repeated group phones { required binary kind (String); optional binary number (String); } }
+    /// Written by pyarrow 23.0.1 as required lists of required structs, then only the footer schema was rewritten to the
+    /// implicit form (leaf columns have identical levels). pyarrow reads the result as list&lt;struct&gt;.
+    /// Used to fail with "Implicit list with multiple children is currently not supported".
+    /// </summary>
+    [Fact]
+    public async Task ImplicitList_MultipleChildren() {
+        using Stream s = OpenTestFile("special/implicit_list_multiple_children.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        // schema: lists of structs, paths as written in the file
+        ListField addresses = Assert.IsType<ListField>(r.Schema.Fields[1]);
+        Assert.IsType<StructField>(addresses.Item);
+        StructField person = Assert.IsType<StructField>(r.Schema.Fields[2]);
+        ListField phones = Assert.IsType<ListField>(person.Fields[1]);
+        Assert.IsType<StructField>(phones.Item);
+        Assert.Equal(
+            new[] { "id(0,0)", "addresses/street(1,1)", "addresses/zip(1,2)", "person/name(0,1)",
+                "person/phones/kind(1,1)", "person/phones/number(1,2)" },
+            r.Schema.DataFields.Select(f => $"{f.Path}({f.MaxRepetitionLevel},{f.MaxDefinitionLevel})"));
+
+        // low level: values and levels, as e.g. a viewer reads them
+        using(RawColumnData<int> zip = await rgr.ReadRawColumnDataAsync<int>(r.Schema.FindDataField(new FieldPath("addresses", "zip")))) {
+            // Values is sized for every entry, only the defined ones (DL == max) are filled
+            Assert.Equal(new[] { 10001, 20002, 30003, 40004 }, zip.Values[..4].ToArray());
+            Assert.Equal(new[] { 2, 1, 0, 2, 2, 2, 1 }, zip.DefinitionLevels.ToArray());
+            Assert.Equal(new[] { 0, 1, 0, 0, 0, 1, 1 }, zip.RepetitionLevels.ToArray());
+        }
+        using(RawColumnData<ReadOnlyMemory<char>> kind = await rgr.ReadRawColumnDataAsync<ReadOnlyMemory<char>>(
+            r.Schema.FindDataField(new FieldPath("person", "phones", "kind")))) {
+            Assert.Equal(new[] { "home", "work", "cell" }, kind.Values[..3].ToArray().Select(v => v.ToString()));
+            Assert.Equal(new[] { 1, 1, 0, 1, 0 }, kind.DefinitionLevels.ToArray());
+            Assert.Equal(new[] { 0, 1, 0, 0, 0 }, kind.RepetitionLevels.ToArray());
+        }
+
+        // untyped deserialization assembles the same rows pyarrow does
+        s.Position = 0;
+        IList<Dictionary<string, object>> rows = (await ParquetSerializer.DeserializeUntypedAsync(s)).Data!;
+        Assert.Equal(4, rows.Count);
+        var row1Addresses = Assert.IsAssignableFrom<IList>(rows[0]["addresses"]);
+        Assert.Equal(2, row1Addresses.Count);
+        Assert.Equal("2 Side Rd", ((IDictionary<string, object?>)row1Addresses[1]!)["street"]);
+        Assert.Empty(Assert.IsAssignableFrom<IList>(rows[1]["addresses"]));
+        Assert.Equal(3, Assert.IsAssignableFrom<IList>(rows[3]["addresses"]).Count);
+        var row1Phones = Assert.IsAssignableFrom<IList>(((IDictionary<string, object?>)rows[0]["person"]!)["phones"]);
+        Assert.Equal("work", ((IDictionary<string, object?>)row1Phones[1]!)["kind"]);
+        Assert.Empty(Assert.IsAssignableFrom<IList>(((IDictionary<string, object?>)rows[3]["person"]!)["phones"]));
     }
 
     [Fact]

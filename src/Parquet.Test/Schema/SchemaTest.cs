@@ -525,36 +525,87 @@ public class SchemaTest : TestBase {
         }
     }
 
+    /// <summary>
+    /// A repeated group with several fields is a required list of required structs (used to throw
+    /// "Implicit list with multiple children is currently not supported").
+    /// </summary>
     [Fact]
     public void Decode_list_implicit_many() {
 
-        Assert.Throws<NotSupportedException>(() => {
+        ParquetSchema schema = ThriftFooter.Parse(
 
-            ParquetSchema schema = ThriftFooter.Parse(
+            // repeated field, not annotated with anything at all
+            new SchemaElement {
+                Name = "data_group",
+                RepetitionType = FieldRepetitionType.REPEATED,
+                NumChildren = 3
+            },
 
-                // repeated field, not annotated with anything at all
-                new SchemaElement {
-                    Name = "data_group",
-                    RepetitionType = FieldRepetitionType.REPEATED,
-                    NumChildren = 3
-                },
+            new SchemaElement {
+                Name = "nested1",
+                RepetitionType = FieldRepetitionType.REQUIRED,
+                Type = TT.BYTE_ARRAY
+            },
+            new SchemaElement {
+                Name = "nested2",
+                RepetitionType = FieldRepetitionType.OPTIONAL,
+                Type = TT.INT32
+            },
+            new SchemaElement {
+                Name = "nested3",
+                RepetitionType = FieldRepetitionType.REQUIRED,
+                Type = TT.BOOLEAN
+            });
 
-                new SchemaElement {
-                    Name = "nested1",
-                    RepetitionType = FieldRepetitionType.REQUIRED,
-                    Type = TT.BYTE_ARRAY
-                },
-                new SchemaElement {
-                    Name = "nested2",
-                    RepetitionType = FieldRepetitionType.REQUIRED,
-                    Type = TT.INT32
-                },
-                new SchemaElement {
-                    Name = "nested3",
-                    RepetitionType = FieldRepetitionType.REQUIRED,
-                    Type = TT.BOOLEAN
-                });
-        });
+        ListField lf = Assert.IsType<ListField>(Assert.Single(schema.Fields));
+        Assert.Equal("data_group", lf.Name);
+        Assert.False(lf.IsNullable);
+
+        StructField item = Assert.IsType<StructField>(lf.Item);
+        Assert.False(item.IsNullable);
+        Assert.Equal(new[] { "nested1", "nested2", "nested3" }, item.Fields.Select(f => f.Name));
+
+        // paths are the ones written in the file, there is no extra list/element level
+        Assert.Equal(new[] { "data_group/nested1", "data_group/nested2", "data_group/nested3" },
+            schema.DataFields.Select(f => f.Path.ToString()));
+        Assert.All(schema.DataFields, f => Assert.Equal(1, f.MaxRepetitionLevel));
+        Assert.Equal(new[] { 1, 2, 1 }, schema.DataFields.Select(f => f.MaxDefinitionLevel));
+    }
+
+    /// <summary>
+    /// The "not inside a LIST or MAP group" check used to look at the previous schema element instead of the parent,
+    /// so an implicit list right after an annotated column (here a UTF8 string) was not recognised as a list.
+    /// </summary>
+    [Fact]
+    public void Decode_list_implicit_after_annotated_sibling() {
+        ParquetSchema schema = ThriftFooter.Parse(
+            new SchemaElement {
+                Name = "person",
+                RepetitionType = FieldRepetitionType.REQUIRED,
+                NumChildren = 2
+            },
+            new SchemaElement {
+                Name = "name",
+                RepetitionType = FieldRepetitionType.OPTIONAL,
+                Type = TT.BYTE_ARRAY,
+                ConvertedType = ConvertedType.UTF8
+            },
+            new SchemaElement {
+                Name = "tags",
+                RepetitionType = FieldRepetitionType.REPEATED,
+                NumChildren = 1
+            },
+            new SchemaElement {
+                Name = "tag",
+                RepetitionType = FieldRepetitionType.REQUIRED,
+                Type = TT.BYTE_ARRAY
+            });
+
+        StructField person = Assert.IsType<StructField>(Assert.Single(schema.Fields));
+        ListField tags = Assert.IsType<ListField>(person.Fields[1]);
+        Assert.Equal("tag", tags.Item.Name);
+        Assert.Equal(1, tags.Item.MaxRepetitionLevel);
+        Assert.Equal(1, tags.Item.MaxDefinitionLevel);
     }
 
     [Fact]

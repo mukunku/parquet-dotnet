@@ -65,6 +65,8 @@ dotnet_style_parentheses_in_arithmetic_binary_operators = always_for_clarity:war
 dotnet_style_parentheses_in_relational_binary_operators = always_for_clarity:warning
 dotnet_style_parentheses_in_other_binary_operators = always_for_clarity:warning
 dotnet_style_parentheses_in_other_operators = never_if_unnecessary:suggestion
+# IDE0047: remove unnecessary parentheses. Off: explicit grouping is preferred even when precedence makes it redundant
+dotnet_diagnostic.IDE0047.severity = none
 
 # Expression-level preferences
 dotnet_style_object_initializer = true:suggestion
