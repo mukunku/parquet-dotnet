@@ -40,6 +40,39 @@ static class ByteStreamSplitEncoder {
         throw new NotSupportedException(t.Name);
     }
 
+    /// <summary>
+    /// True when <typeparamref name="T"/> is a primitive that <see cref="Decode{T}"/> can write into directly. Other
+    /// types (e.g. <see cref="DateTime"/> or <see cref="decimal"/> over INT32/INT64, or fixed length byte arrays) must
+    /// go through <see cref="DecodeToPlain"/> and the plain decoder.
+    /// </summary>
+    public static bool CanDecodeDirectly<T>() where T : struct {
+        Type t = typeof(T);
+        return t == typeof(short) || t == typeof(ushort) ||
+            t == typeof(int) || t == typeof(uint) || t == typeof(float) ||
+            t == typeof(long) || t == typeof(ulong) || t == typeof(double);
+    }
+
+    /// <summary>
+    /// Reverses the byte stream split for <paramref name="count"/> values of <paramref name="width"/> bytes each. The
+    /// result in <paramref name="dest"/> is exactly the PLAIN encoding of those values.
+    /// </summary>
+    public static void DecodeToPlain(Span<byte> s, Span<byte> dest, int width, int count) {
+        if(s.Length < count * width) {
+            throw new ArgumentException("Source span is too small.", nameof(s));
+        }
+        if(dest.Length < count * width) {
+            throw new ArgumentException("Destination span is too small.", nameof(dest));
+        }
+
+        // stream b holds byte b of every value, one stream after another
+        for(int b = 0; b < width; b++) {
+            Span<byte> stream = s.Slice(b * count, count);
+            for(int i = 0; i < count; i++) {
+                dest[(i * width) + b] = stream[i];
+            }
+        }
+    }
+
     public static void Decode<T>(Span<byte> s, Span<T> dest) where T : struct {
         if(ParquetOptions.UseHardwareAcceleration) {
             DecodeHwx(s, dest);

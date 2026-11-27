@@ -303,8 +303,31 @@ class DataColumnReader {
                 break;
 
             case Encoding.BYTE_STREAM_SPLIT: {       // 9
-                    ByteStreamSplitEncoder.Decode(src, rc.ValuesToReadInto.Slice(0, totalValuesInPage));
-                    rc.MarkValuesRead(totalValuesInPage);
+                    if(ByteStreamSplitEncoder.CanDecodeDirectly<T>()) {
+                        ByteStreamSplitEncoder.Decode(src, rc.ValuesToReadInto.Slice(0, totalValuesInPage));
+                        rc.MarkValuesRead(totalValuesInPage);
+                    } else {
+                        // types converted from the physical value (dates, timestamps, decimals, fixed length byte
+                        // arrays): un-split into plain bytes and let the plain decoder do the conversion
+                        int width = _schemaElement!.Type switch {
+                            Meta.Type.INT32 or Meta.Type.FLOAT => 4,
+                            Meta.Type.INT64 or Meta.Type.DOUBLE => 8,
+                            Meta.Type.FIXED_LEN_BYTE_ARRAY => _schemaElement.TypeLength
+                                ?? throw new ParquetException($"column '{_dataField.Path}' is missing type length"),
+                            _ => throw new ParquetException(
+                                $"encoding {encoding} is not valid for physical type {_schemaElement.Type} in column '{_dataField.Path}'")
+                        };
+                        int plainLength = totalValuesInPage * width;
+                        byte[] plain = ArrayPool<byte>.Shared.Rent(plainLength);
+                        try {
+                            ByteStreamSplitEncoder.DecodeToPlain(src, plain.AsSpan(0, plainLength), width, totalValuesInPage);
+                            ParquetPlainEncoder.Decode(rc.ValuesToReadInto, totalValuesInPage,
+                                _schemaElement, plain.AsSpan(0, plainLength), out int read, _options);
+                            rc.MarkValuesRead(read);
+                        } finally {
+                            ArrayPool<byte>.Shared.Return(plain);
+                        }
+                    }
                 }
                 break;
             case Encoding.BIT_PACKED:                // 4 (deprecated)

@@ -231,4 +231,81 @@ public class ByteStreamSplitEncoderTest : TestBase {
         await EncodingHint_Respected<ulong>(Enumerable.Range(0, 100).Select(i => (ulong)i).ToArray());
     }
 
+    [Fact]
+    public void DecodeToPlain_ReversesApacheExample() {
+        // three 4-byte values AA BB CC DD | 00 11 22 33 | A3 B4 C5 D6, split into byte streams
+        byte[] split = [0xAA, 0x00, 0xA3, 0xBB, 0x11, 0xB4, 0xCC, 0x22, 0xC5, 0xDD, 0x33, 0xD6];
+        byte[] plain = new byte[12];
+        ByteStreamSplitEncoder.DecodeToPlain(split, plain, 4, 3);
+        Assert.Equal(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD, 0x00, 0x11, 0x22, 0x33, 0xA3, 0xB4, 0xC5, 0xD6 }, plain);
+    }
+
+    /*
+     * bss_logical_types.parquet: pyarrow 23.0.1, data page V2, snappy, BYTE_STREAM_SPLIT on every column,
+     * store_decimal_as_integer=True. 5 rows, row 3 (index 2) is null in every column.
+     * Before the fix, every column whose CLR type is converted from the physical value failed with
+     * NotSupportedException carrying just the type name, e.g. "DateTime".
+     */
+    private const string LogicalTypesFile = "bss_logical_types.parquet";
+
+    [Fact]
+    public async Task LogicalTypes_DefaultOptions() {
+        await using ParquetReader reader = await ParquetReader.CreateAsync(OpenTestFile(LogicalTypesFile), leaveStreamOpen: false);
+        using ParquetRowGroupReader rgr = reader.OpenRowGroupReader(0);
+
+        DateTime?[] tsUs = await ReadNullableValuesAsync<DateTime>(rgr, reader.Schema.FindDataField("ts_us"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17, 8, 30, 15).AddTicks(1_234_560), new DateTime(1969, 12, 31, 23, 59, 59), null,
+            new DateTime(9999, 12, 31), new DateTime(1, 1, 1)
+        }, tsUs);
+
+        DateTime?[] tsMsUtc = await ReadNullableValuesAsync<DateTime>(rgr, reader.Schema.FindDataField("ts_ms_utc"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17, 8, 30, 15, 123), new DateTime(1969, 12, 31, 23, 59, 59), null,
+            new DateTime(2262, 1, 1), new DateTime(1900, 1, 1)
+        }, tsMsUtc);
+        Assert.All(tsMsUtc.Where(v => v.HasValue), v => Assert.Equal(DateTimeKind.Utc, v!.Value.Kind));
+
+        DateTime?[] dates = await ReadNullableValuesAsync<DateTime>(rgr, reader.Schema.FindDataField("date"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17), new DateTime(1969, 12, 31), null, new DateTime(9999, 12, 31), new DateTime(1, 1, 1)
+        }, dates);
+
+        decimal?[] decI32 = await ReadNullableValuesAsync<decimal>(rgr, reader.Schema.FindDataField("dec_i32"));
+        Assert.Equal(new decimal?[] { 1.23m, -4.56m, null, 9999999.99m, 0m }, decI32);
+
+        decimal?[] decI64 = await ReadNullableValuesAsync<decimal>(rgr, reader.Schema.FindDataField("dec_i64"));
+        Assert.Equal(new decimal?[] { 1.23m, -4.56m, null, 9999999999999999.99m, 0m }, decI64);
+
+        decimal?[] decFlba = await ReadNullableValuesAsync<decimal>(rgr, reader.Schema.FindDataField("dec_flba"));
+        Assert.Equal(new decimal?[] { 1.23m, -4.56m, null, 12345678901234567890.12m, 0m }, decFlba);
+
+        ReadOnlyMemory<byte>?[] flba = await ReadNullableValuesAsync<ReadOnlyMemory<byte>>(rgr, reader.Schema.FindDataField("flba16"));
+        Assert.Null(flba[2]);
+        Assert.Equal(new byte?[] { 1, 2, null, 3, 4 }, flba.Select(v => v.HasValue ? v.Value.Span[15] : (byte?)null));
+        Assert.All(flba.Where(v => v.HasValue), v => Assert.Equal(16, v!.Value.Length));
+
+        // types that were already supported keep working
+        int?[] i32 = await ReadNullableValuesAsync<int>(rgr, reader.Schema.FindDataField("i32"));
+        Assert.Equal(new int?[] { 1, -2, null, 2_000_000_000, 7 }, i32);
+        long?[] timeUs = await ReadNullableValuesAsync<long>(rgr, reader.Schema.FindDataField("time_us"));
+        Assert.Equal(new long?[] { 37_800_000_000, 0, null, 86_399_999_999, 1_000_000 }, timeUs);
+    }
+
+    [Fact]
+    public async Task LogicalTypes_DateOnlyAndBigDecimal() {
+        await using ParquetReader reader = await ParquetReader.CreateAsync(OpenTestFile(LogicalTypesFile),
+            new ParquetOptions { UseDateOnlyTypeForDates = true, UseBigDecimal = true }, leaveStreamOpen: false);
+        using ParquetRowGroupReader rgr = reader.OpenRowGroupReader(0);
+
+        DateOnly?[] dates = await ReadNullableValuesAsync<DateOnly>(rgr, reader.Schema.FindDataField("date"));
+        Assert.Equal(new DateOnly?[] {
+            new DateOnly(2024, 5, 17), new DateOnly(1969, 12, 31), null, new DateOnly(9999, 12, 31), new DateOnly(1, 1, 1)
+        }, dates);
+
+        BigDecimal?[] decFlba = await ReadNullableValuesAsync<BigDecimal>(rgr, reader.Schema.FindDataField("dec_flba"));
+        Assert.Equal(new string?[] { "1.23", "-4.56", null, "12345678901234567890.12", "0.00" },
+            decFlba.Select(v => v?.ToString()));
+    }
+
 }
