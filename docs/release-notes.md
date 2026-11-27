@@ -1,6 +1,7 @@
 # 6.2.0
 
 ## New
+- Reading `FLOAT` and `DOUBLE` columns encoded with ALP (Adaptive Lossless floating-Point, encoding 10), the new floating-point encoding in the Parquet format (currently marked as preview). Decoding only; Parquet.Net does not write ALP. The reserved ALP-RD mode is not supported and reported as such.
 - `ParquetOptions.DateTimeOutOfRangeHandling` controls what happens when a DATE, TIMESTAMP or INT96 value is outside the range `DateTime` / `DateOnly` can represent (years 1 to 9999): `Throw` (default) raises a `ParquetException` naming the column and the raw value, `Clamp` returns the type's `MinValue` / `MaxValue`. Such values are valid Parquet, e.g. DuckDB writes `infinity` / `-infinity` as the largest / smallest possible values.
 
 ## Bugs fixed

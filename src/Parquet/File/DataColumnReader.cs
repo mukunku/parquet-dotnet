@@ -330,6 +330,11 @@ class DataColumnReader {
                     }
                 }
                 break;
+            case Encoding.ALP: {                     // 10
+                    int read = AlpEncoder.Decode(src, rc.ValuesToReadInto);
+                    rc.MarkValuesRead(read);
+                }
+                break;
             case Encoding.BIT_PACKED:                // 4 (deprecated)
             default:
                 throw new ParquetException($"encoding {encoding} is not supported.");
