@@ -11,86 +11,88 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 
 ## Open issues
 
-| # | Title | Created | Status |
-|---:|---|---|---|
-| [302](302.md) | Enum serialization | 2023-04-18 | Partially recovered |
-| [367](367.md) | DataColumn sliced buffers | 2023-07-08 | Recovered |
-| [376](376.md) | Deserialize parquet file to JSON | 2023-08-02 | Recovered |
-| [393](393.md) | [BUG]: ArgumentOutOfRangeException thrown when trying to write column (interop type narrowing) | 2023-09-03 | Recovered |
-| [410](410.md) | [BUG]: ParquetSerializer doesn't support different JsonPropertyName and ClrPropertyName on struct fields | 2023-09-27 | Recovered |
-| [434](434.md) | Class deserializer should not require ParquetRequired attribute for required strings | 2023-11-21 | Recovered |
-| [456](456.md) | [BUG]: Unable to deserialize class with Array | 2024-01-15 | Recovered |
-| [474](474.md) | support for object datatype | 2024-02-08 | Recovered |
-| [484](484.md) | Feature request: add API for 2 step group writting | 2024-02-29 | Recovered |
-| [488](488.md) | [BUG]: Enum Serialization | 2024-03-16 | Recovered |
-| [507](507.md) | Feature requst: extend DataColumn API to read column values directly into provided Span/Memory/Array | 2024-05-02 | Partially recovered |
-| [513](513.md) | Serialization of interface typed members | 2024-05-30 | Recovered |
-| [525](525.md) | [BUG]: Floor does not handle Dictionary<string, DateTime> | 2024-07-01 | Recovered |
-| [531](531.md) | Support Dictionary encoding for more types. | 2024-07-09 | Recovered |
-| [532](532.md) | Support RLE encoding in data pages for bools | 2024-07-16 | Recovered |
-| [533](533.md) | [BUG]: Incorrect data type for TimeSpan | 2024-07-19 | Recovered |
-| [535](535.md) | [BUG]: non null string fails with InvalidDataException and is wrongly flagged as nullable | 2024-07-22 | Recovered |
-| [544](544.md) | [BUG]: "don't know how to skip type Set" error | 2024-08-26 | Recovered |
-| [545](545.md) | Support `ParquetTimestampResolution.Microseconds` for Unity (.Net Standard 2.1) | 2024-09-01 | Recovered |
-| [548](548.md) | [BUG]:  | 2024-09-10 | Recovered |
-| [552](552.md) | [BUG]: Possible multiple enumeration while serializing | 2024-09-13 | Recovered |
-| [557](557.md) | [BUG]: breaking change: class serialization: F# records with mutable fields are duped with @ suffix | 2024-10-01 | Recovered |
-| [563](563.md) | [BUG]: Parquet compression is not working inside a Linux container in Docker Desktop | 2024-10-09 | Recovered |
-| [570](570.md) | No streaming support, no predicate support, everything is loaded in memory | 2024-11-12 | Recovered |
-| [571](571.md) | Reintegrate "Support for Roslyn nullable annotations" | 2024-11-13 | Recovered |
-| [574](574.md) | [BUG]:  | 2024-11-25 | Recovered |
-| [576](576.md) | [BUG]: Only x out of y bytes are available | 2024-12-02 | Recovered |
-| [579](579.md) | [BUG]: only 6585 out of 26392 bytes are available | 2024-12-16 | Recovered |
-| [582](582.md) | [BUG]: Handle nested struct serialization | 2024-12-21 | Recovered |
-| [583](583.md) | [BUG]: Can't Read Parquet Files Created with parquet-mr 1.14.0+ | 2024-12-24 | Recovered |
-| [584](584.md) | [BUG]:  | 2025-01-03 | Recovered |
-| [586](586.md) | Untyped serializer and complex types (class or struct) | 2025-01-09 | Recovered |
-| [588](588.md) | Feature Request: Full Nanosecond precision support | 2025-01-13 | Recovered |
-| [589](589.md) | DataFrame WriteAsync always creates nullable data types in schema | 2025-01-14 | Recovered |
-| [590](590.md) | Is there a way to create a reader without a seekable stream? | 2025-01-21 | Recovered |
-| [591](591.md) | [BUG]: Incorrect values read for column pathOrInlineDv in version 3.10.0 | 2025-01-30 | Recovered |
-| [594](594.md) | [BUG]: Cannot Serialize List of Dictionary | 2025-02-11 | Recovered |
-| [599](599.md) | DELTA_BINARY_PACKED on short,ushort,ulong,uint | 2025-02-28 | Partially recovered |
-| [600](600.md) | isAdjustedToUTC is not valid. | 2025-03-03 | Recovered |
-| [608](608.md) | Standardize the usage of "serialize" over "serialise" | 2025-04-03 | Recovered |
-| [609](609.md) | [BUG]: Floor - If first column is a boolean it is only partially rendered | 2025-04-07 | Recovered |
-| [612](612.md) | [BUG]: Serialising a list of lists fails | 2025-04-17 | Recovered |
-| [613](613.md) | Required struct and DL miss match | 2025-04-30 | Recovered |
-| [614](614.md) | How can I declare that a column is sorted ? | 2025-05-14 | Recovered |
-| [618](618.md) | Support an option to have required reference types | 2025-06-05 | Not recovered |
-| [621](621.md) | clarification of "zero dependencies" | 2025-06-16 | Recovered |
-| [623](623.md) | DataPageHeaderV2.IsCompressed is defaulting to false on read even though the spec seems to say it should be true | 2025-06-20 | Recovered |
-| [624](624.md) | Ability to specify custom deserialization for a specific type | 2025-06-21 | Recovered |
-| [626](626.md) | NAOT Warning: TypeExtensions.GetNullable(Type) | 2025-06-27 | Recovered |
-| [627](627.md) | IAsyncEnumerable serializer | 2025-07-02 | Recovered |
-| [628](628.md) | How to enable dictionary encoding? | 2025-07-14 | Recovered |
-| [630](630.md) | [BUG]: Serialize doesn't handle empty + null list of nullable type | 2025-07-20 | Recovered |
-| [634](634.md) | [BUG]: Floor has incorrect installer hash when fetched from winget | 2025-08-02 | Recovered |
-| [635](635.md) | [BUG]: Very large parquet files cannot be read | 2025-08-03 | Partially recovered |
-| [638](638.md) | [BUG]: `DivideByZeroException` when reading boolean columns in Parquet.Net 5.x (RLE decoding bug) | 2025-08-12 | Recovered |
-| [640](640.md) | Possibly faulty field skipping for thrift structs during reading | 2025-08-15 | Recovered |
-| [642](642.md) | DELTA_BINARY_PACKED on DateTime | 2025-08-31 | Recovered |
-| [643](643.md) | Inconsistent results when encoding Boolean values | 2025-09-05 | Partially recovered |
-| [648](648.md) | [BUG]: Anything other than a `class` cannot be desrialsed | 2025-09-18 | Recovered |
-| [666](666.md) | [BUG]: Unhandled exception: System.InvalidOperationException: Not all columns were written. | 2025-10-29 | Partially recovered |
-| [721](721.md) | [BUG]: ParquetSerializer.DeserializeAllAsync on file with no rows throws InvalidOperationException | 2026-03-25 | Not recovered |
-| [723](723.md) | ThriftCompactProtocolReader.SkipField crashes on corrupted footer from interrupted append | 2026-03-26 | Not recovered |
-| [758](758.md) | [BUG]: Guid/UUID min/max statistics appear to use .NET Guid byte order | 2026-05-21 | Partially recovered |
-| [764](764.md) | [BUG]: DeserializeAsync(rowGroupIndex:) allocates a result list sized to the whole file, causing OOM on large files | 2026-06-05 | Not recovered |
-| [765](765.md) | gzip write default compression level changed from Optimal to SmallestSize in 6.0 (undocumented) | 2026-06-05 | Not recovered |
-| [766](766.md) | [BUG]: Row group reader failed on string list | 2026-07-05 | Not recovered |
-| [767](767.md) | DATE logical type incorrectly mapped to DateTime instead of DateOnly | 2026-07-12 | Not recovered |
-| [769](769.md) | [BUG]: Wrong stats for Timestamp micros | 2026-07-15 | Not recovered |
-| [771](771.md) | [BUG]: TreatByteArrayAsString being ignored in specific case. | 2026-07-19 | Not recovered |
-| [772](772.md) | [Feature request] Allow definitionLevels / nullablity to be user provided | 2026-07-20 | Not recovered |
-| [773](773.md) | Code examples in README.md do not compile | 2026-07-21 | Not recovered |
-| [775](775.md) | [BUG]: There is no public API to read string values from a list column directly and no example | 2026-07-29 | Not recovered |
-| [778](778.md) | [BUG]: element type System.DateTime is not supported in DELTA_BINARY_PACKED | 2026-08-05 | Not recovered |
-| [793](793.md) | Change Deserialization to use Activator.CreateInstance | 2026-09-18 | Not recovered |
-| [794](794.md) | Add WriteAllPartsAsync() Overload to accept Custom Metadata | 2026-09-22 | Not recovered |
-| [796](796.md) | [BUG]: TimeSpan/TimeOnly output not compatible with AWS Athena | 2026-09-28 | Not recovered |
-| [797](797.md) | Read Performance & Allocations Regressed For Strings in V6 vs. V5 | 2026-10-09 | Not recovered |
-| [800](800.md) | [BUG]: Corrupted readings on unknown parquet struct | 2026-11-04 | Not recovered |
+**Fixed in** is the first release containing the fix, for issues still listed as open here although they were fixed later. The version comes from the release notes, or from the maintainer's comment in the thread when the notes don't mention the issue (#548, #563, #583). _(likely)_ means only the title survives, so the match is inferred.
+
+| # | Title | Created | Status | Fixed in |
+|---:|---|---|---|---|
+| [302](302.md) | Enum serialization | 2023-04-18 | Partially recovered | |
+| [367](367.md) | DataColumn sliced buffers | 2023-07-08 | Recovered | |
+| [376](376.md) | Deserialize parquet file to JSON | 2023-08-02 | Recovered | 4.16.0 |
+| [393](393.md) | [BUG]: ArgumentOutOfRangeException thrown when trying to write column (interop type narrowing) | 2023-09-03 | Recovered | |
+| [410](410.md) | [BUG]: ParquetSerializer doesn't support different JsonPropertyName and ClrPropertyName on struct fields | 2023-09-27 | Recovered | 4.17.0 |
+| [434](434.md) | Class deserializer should not require ParquetRequired attribute for required strings | 2023-11-21 | Recovered | |
+| [456](456.md) | [BUG]: Unable to deserialize class with Array | 2024-01-15 | Recovered | |
+| [474](474.md) | support for object datatype | 2024-02-08 | Recovered | |
+| [484](484.md) | Feature request: add API for 2 step group writting | 2024-02-29 | Recovered | |
+| [488](488.md) | [BUG]: Enum Serialization | 2024-03-16 | Recovered | |
+| [507](507.md) | Feature requst: extend DataColumn API to read column values directly into provided Span/Memory/Array | 2024-05-02 | Partially recovered | |
+| [513](513.md) | Serialization of interface typed members | 2024-05-30 | Recovered | |
+| [525](525.md) | [BUG]: Floor does not handle Dictionary<string, DateTime> | 2024-07-01 | Recovered | |
+| [531](531.md) | Support Dictionary encoding for more types. | 2024-07-09 | Recovered | |
+| [532](532.md) | Support RLE encoding in data pages for bools | 2024-07-16 | Recovered | |
+| [533](533.md) | [BUG]: Incorrect data type for TimeSpan | 2024-07-19 | Recovered | |
+| [535](535.md) | [BUG]: non null string fails with InvalidDataException and is wrongly flagged as nullable | 2024-07-22 | Recovered | |
+| [544](544.md) | [BUG]: "don't know how to skip type Set" error | 2024-08-26 | Recovered | |
+| [545](545.md) | Support `ParquetTimestampResolution.Microseconds` for Unity (.Net Standard 2.1) | 2024-09-01 | Recovered | |
+| [548](548.md) | [BUG]:  | 2024-09-10 | Recovered | 5.0.0 |
+| [552](552.md) | [BUG]: Possible multiple enumeration while serializing | 2024-09-13 | Recovered | |
+| [557](557.md) | [BUG]: breaking change: class serialization: F# records with mutable fields are duped with @ suffix | 2024-10-01 | Recovered | |
+| [563](563.md) | [BUG]: Parquet compression is not working inside a Linux container in Docker Desktop | 2024-10-09 | Recovered | 5.0.1 |
+| [570](570.md) | No streaming support, no predicate support, everything is loaded in memory | 2024-11-12 | Recovered | |
+| [571](571.md) | Reintegrate "Support for Roslyn nullable annotations" | 2024-11-13 | Recovered | |
+| [574](574.md) | [BUG]:  | 2024-11-25 | Recovered | |
+| [576](576.md) | [BUG]: Only x out of y bytes are available | 2024-12-02 | Recovered | 5.1.0 |
+| [579](579.md) | [BUG]: only 6585 out of 26392 bytes are available | 2024-12-16 | Recovered | |
+| [582](582.md) | [BUG]: Handle nested struct serialization | 2024-12-21 | Recovered | 5.4.0 |
+| [583](583.md) | [BUG]: Can't Read Parquet Files Created with parquet-mr 1.14.0+ | 2024-12-24 | Recovered | 5.1.0 |
+| [584](584.md) | [BUG]:  | 2025-01-03 | Recovered | |
+| [586](586.md) | Untyped serializer and complex types (class or struct) | 2025-01-09 | Recovered | |
+| [588](588.md) | Feature Request: Full Nanosecond precision support | 2025-01-13 | Recovered | |
+| [589](589.md) | DataFrame WriteAsync always creates nullable data types in schema | 2025-01-14 | Recovered | |
+| [590](590.md) | Is there a way to create a reader without a seekable stream? | 2025-01-21 | Recovered | |
+| [591](591.md) | [BUG]: Incorrect values read for column pathOrInlineDv in version 3.10.0 | 2025-01-30 | Recovered | |
+| [594](594.md) | [BUG]: Cannot Serialize List of Dictionary | 2025-02-11 | Recovered | |
+| [599](599.md) | DELTA_BINARY_PACKED on short,ushort,ulong,uint | 2025-02-28 | Partially recovered | |
+| [600](600.md) | isAdjustedToUTC is not valid. | 2025-03-03 | Recovered | |
+| [608](608.md) | Standardize the usage of "serialize" over "serialise" | 2025-04-03 | Recovered | |
+| [609](609.md) | [BUG]: Floor - If first column is a boolean it is only partially rendered | 2025-04-07 | Recovered | |
+| [612](612.md) | [BUG]: Serialising a list of lists fails | 2025-04-17 | Recovered | 5.4.0 |
+| [613](613.md) | Required struct and DL miss match | 2025-04-30 | Recovered | |
+| [614](614.md) | How can I declare that a column is sorted ? | 2025-05-14 | Recovered | |
+| [618](618.md) | Support an option to have required reference types | 2025-06-05 | Not recovered | |
+| [621](621.md) | clarification of "zero dependencies" | 2025-06-16 | Recovered | |
+| [623](623.md) | DataPageHeaderV2.IsCompressed is defaulting to false on read even though the spec seems to say it should be true | 2025-06-20 | Recovered | 5.3.0 |
+| [624](624.md) | Ability to specify custom deserialization for a specific type | 2025-06-21 | Recovered | |
+| [626](626.md) | NAOT Warning: TypeExtensions.GetNullable(Type) | 2025-06-27 | Recovered | |
+| [627](627.md) | IAsyncEnumerable serializer | 2025-07-02 | Recovered | |
+| [628](628.md) | How to enable dictionary encoding? | 2025-07-14 | Recovered | 5.5.0 |
+| [630](630.md) | [BUG]: Serialize doesn't handle empty + null list of nullable type | 2025-07-20 | Recovered | |
+| [634](634.md) | [BUG]: Floor has incorrect installer hash when fetched from winget | 2025-08-02 | Recovered | |
+| [635](635.md) | [BUG]: Very large parquet files cannot be read | 2025-08-03 | Partially recovered | |
+| [638](638.md) | [BUG]: `DivideByZeroException` when reading boolean columns in Parquet.Net 5.x (RLE decoding bug) | 2025-08-12 | Recovered | |
+| [640](640.md) | Possibly faulty field skipping for thrift structs during reading | 2025-08-15 | Recovered | |
+| [642](642.md) | DELTA_BINARY_PACKED on DateTime | 2025-08-31 | Recovered | |
+| [643](643.md) | Inconsistent results when encoding Boolean values | 2025-09-05 | Partially recovered | 5.4.0 |
+| [648](648.md) | [BUG]: Anything other than a `class` cannot be desrialsed | 2025-09-18 | Recovered | |
+| [666](666.md) | [BUG]: Unhandled exception: System.InvalidOperationException: Not all columns were written. | 2025-10-29 | Partially recovered | |
+| [721](721.md) | [BUG]: ParquetSerializer.DeserializeAllAsync on file with no rows throws InvalidOperationException | 2026-03-25 | Not recovered | 6.0.0 |
+| [723](723.md) | ThriftCompactProtocolReader.SkipField crashes on corrupted footer from interrupted append | 2026-03-26 | Not recovered | |
+| [758](758.md) | [BUG]: Guid/UUID min/max statistics appear to use .NET Guid byte order | 2026-05-21 | Partially recovered | |
+| [764](764.md) | [BUG]: DeserializeAsync(rowGroupIndex:) allocates a result list sized to the whole file, causing OOM on large files | 2026-06-05 | Not recovered | |
+| [765](765.md) | gzip write default compression level changed from Optimal to SmallestSize in 6.0 (undocumented) | 2026-06-05 | Not recovered | |
+| [766](766.md) | [BUG]: Row group reader failed on string list | 2026-07-05 | Not recovered | |
+| [767](767.md) | DATE logical type incorrectly mapped to DateTime instead of DateOnly | 2026-07-12 | Not recovered | |
+| [769](769.md) | [BUG]: Wrong stats for Timestamp micros | 2026-07-15 | Not recovered | |
+| [771](771.md) | [BUG]: TreatByteArrayAsString being ignored in specific case. | 2026-07-19 | Not recovered | |
+| [772](772.md) | [Feature request] Allow definitionLevels / nullablity to be user provided | 2026-07-20 | Not recovered | |
+| [773](773.md) | Code examples in README.md do not compile | 2026-07-21 | Not recovered | |
+| [775](775.md) | [BUG]: There is no public API to read string values from a list column directly and no example | 2026-07-29 | Not recovered | |
+| [778](778.md) | [BUG]: element type System.DateTime is not supported in DELTA_BINARY_PACKED | 2026-08-05 | Not recovered | |
+| [793](793.md) | Change Deserialization to use Activator.CreateInstance | 2026-09-18 | Not recovered | |
+| [794](794.md) | Add WriteAllPartsAsync() Overload to accept Custom Metadata | 2026-09-22 | Not recovered | |
+| [796](796.md) | [BUG]: TimeSpan/TimeOnly output not compatible with AWS Athena | 2026-09-28 | Not recovered | 6.2.0 (likely) |
+| [797](797.md) | Read Performance & Allocations Regressed For Strings in V6 vs. V5 | 2026-10-09 | Not recovered | |
+| [800](800.md) | [BUG]: Corrupted readings on unknown parquet struct | 2026-11-04 | Not recovered | |
 
 ## Closed issues
 
