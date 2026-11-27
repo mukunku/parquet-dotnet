@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -686,6 +687,29 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         Assert.Equal(new DateOnly?[] {
             new DateOnly(2024, 5, 17), DateOnly.MaxValue, DateOnly.MaxValue, DateOnly.MinValue, DateOnly.MinValue
         }, dates);
+    }
+
+    /// <summary>
+    /// INT96 timestamps written by pyarrow 23.0.1 (<c>use_deprecated_int96_timestamps=True</c>, dictionary encoded),
+    /// read as raw integers with <see cref="ParquetOptions.TreatBigIntegersAsDates"/> off. This used to fail with
+    /// "Cannot use type 'System.Numerics.BigInteger'. Only value types without pointers or references are supported".
+    /// An INT96 timestamp is nanoseconds of the day in the low 8 bytes and the julian day in the high 4.
+    /// </summary>
+    [Fact]
+    public async Task Int96_read_as_BigInteger() {
+        const long unixEpochJulianDay = 2_440_588;
+        long day = unixEpochJulianDay + (new DateOnly(2024, 5, 17).DayNumber - new DateOnly(1970, 1, 1).DayNumber);
+        long nanos = ((((8 * 3600) + (30 * 60) + 15) * 1_000_000_000L) + 123_456_000L);
+
+        using Stream s = OpenTestFile("special/int96_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions { TreatBigIntegersAsDates = false });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField field = Assert.Single(r.Schema.GetDataFields());
+
+        BigInteger?[] values = await ReadNullableValuesAsync<BigInteger>(rgr, field);
+        Assert.Equal(new BigInteger?[] {
+            (new BigInteger(day) << 64) + nanos, null, new BigInteger(unixEpochJulianDay) << 64
+        }, values);
     }
 
     [Fact]

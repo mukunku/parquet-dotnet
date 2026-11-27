@@ -78,7 +78,7 @@ static class ParquetPlainEncoder {
             StatsCompute.Compute(span, stats);
         } else if(t == typeof(BigInteger)) {
             ReadOnlySpan<BigInteger> span = sourceSpan.AsSpan<T, BigInteger>();
-            Encode(span, destination);
+            Encode(span, destination, tse);
             StatsCompute.Compute(span, stats);
         } else if(t == typeof(decimal)) {
             ReadOnlySpan<decimal> span = sourceSpan.AsSpan<T, decimal>();
@@ -259,7 +259,8 @@ static class ParquetPlainEncoder {
             result = BitConverter.GetBytes((ulong)value);
             return true;
         } else if(t == typeof(BigInteger)) {
-            result = ((BigInteger)value).ToByteArray();
+            result = new byte[Int96Size];
+            WriteInt96((BigInteger)value, result, tse);
             return true;
         } else if(t == typeof(decimal))
             return TryEncode((decimal)value, tse, out result);
@@ -712,9 +713,31 @@ static class ParquetPlainEncoder {
         destination.Write(bytes);
     }
 
-    public static void Encode(ReadOnlySpan<BigInteger> data, Stream destination) {
-        ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(data);
-        destination.Write(bytes);
+    // BigInteger holds a reference, so unlike the other numbers it cannot be copied as raw memory. INT96 values are
+    // 12 byte little endian signed integers.
+    private const int Int96Size = 12;
+
+    private static void WriteInt96(BigInteger value, Span<byte> destination, SchemaElement tse) {
+        if(!value.TryWriteBytes(destination, out int written))
+            throw new ParquetException($"column '{tse.Name}': value {value} does not fit in INT96 (96 bits)");
+
+        // sign extend to the full 12 bytes
+        destination.Slice(written).Fill((value.Sign < 0) ? (byte)0xFF : (byte)0);
+    }
+
+    public static void Encode(ReadOnlySpan<BigInteger> data, Stream destination, SchemaElement tse) {
+        Span<byte> buffer = stackalloc byte[Int96Size];
+        foreach(BigInteger value in data) {
+            WriteInt96(value, buffer, tse);
+            destination.Write(buffer);
+        }
+    }
+
+    public static int Decode(Span<byte> source, Span<BigInteger> data) {
+        int count = Math.Min(data.Length, source.Length / Int96Size);
+        for(int i = 0; i < count; i++)
+            data[i] = new BigInteger(source.Slice(i * Int96Size, Int96Size));
+        return count;
     }
 
     public static int Decode<T>(Span<byte> source, Span<T> data) where T : struct {

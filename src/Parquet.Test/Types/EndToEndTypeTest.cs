@@ -513,6 +513,51 @@ public class EndToEndTypeTest : TestBase {
         Assert.Equal(expected, actual);
     }
 
+    private static readonly BigInteger Int96Max = (BigInteger.One << 95) - 1;
+    private static readonly BigInteger Int96Min = -(BigInteger.One << 95);
+
+    /// <summary>
+    /// <see cref="BigInteger"/> columns are INT96. Writing and reading them used to fail, as they were copied as raw
+    /// memory, which <see cref="BigInteger"/> (holding a reference) does not allow, and statistics were written with
+    /// the minimal byte length instead of 12 bytes, so they read back as null.
+    /// </summary>
+    [Fact]
+    public async Task Type_biginteger_writes_and_reads_as_int96() {
+        var field = new DataField<BigInteger>("big");
+        BigInteger[] values = [0, 1, -1, 1234567890123456789, Int96Max, Int96Min, BigInteger.Parse("-98765432109876543210")];
+
+        using var ms = new MemoryStream();
+        await using(ParquetWriter w = await ParquetWriter.CreateAsync(new ParquetSchema(field), ms)) {
+            using ParquetRowGroupWriter rg = w.CreateRowGroup();
+            await rg.WriteAsync<BigInteger>(field, values);
+        }
+
+        ms.Position = 0;
+        await using ParquetReader r = await ParquetReader.CreateAsync(ms, new ParquetOptions { TreatBigIntegersAsDates = false });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField readField = r.Schema.DataFields[0];
+        Assert.Equal(Meta.Type.INT96, rgr.RowGroup.Columns[0].MetaData!.Type);
+
+        RawColumnData<BigInteger> column = await rgr.ReadRawColumnDataAsync<BigInteger>(readField);
+        Assert.Equal(values, column.Values.ToArray());
+
+        DataColumnStatistics? stats = rgr.GetStatistics(readField);
+        Assert.Equal(Int96Min, stats?.MinValue);
+        Assert.Equal(Int96Max, stats?.MaxValue);
+    }
+
+    [Fact]
+    public async Task Type_biginteger_larger_than_int96_throws() {
+        var field = new DataField<BigInteger>("big");
+        using var ms = new MemoryStream();
+        await using ParquetWriter w = await ParquetWriter.CreateAsync(new ParquetSchema(field), ms);
+        using ParquetRowGroupWriter rg = w.CreateRowGroup();
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => rg.WriteAsync<BigInteger>(field, new[] { Int96Max + 1 }));
+        Assert.Contains("column 'big'", ex.Message);
+    }
+
     [Fact]
     public async Task Type_date_writes_and_reads() {
         var field = new DateTimeDataField("dateDate", DateTimeFormat.Date);
