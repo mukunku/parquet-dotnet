@@ -11,7 +11,8 @@
         <DocumentationFile>bin\Debug\$(TargetFramework)\Parquet.xml</DocumentationFile>
         <DebugType>full</DebugType>
         <DebugSymbols>true</DebugSymbols>
-        <PackageTags>apache parquet dotnet core net c# f# windows linux macos ios android xboxone xbox</PackageTags>
+        <PackageTags>apache parquet dotnet core net c# f# windows linux macos</PackageTags>
+        <Copyright>Copyright (c) 2017 Ivan Gavryliuk, Copyright (c) 2026 mukunku</Copyright>
         <LangVersion>latest</LangVersion>
         <Nullable>enable</Nullable>
 
