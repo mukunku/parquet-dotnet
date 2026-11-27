@@ -8,6 +8,9 @@ using Xunit;
 
 namespace Parquet.Test;
 
+// CompressionMethod.LZ4 is obsolete for users, but still written when asked for and read
+#pragma warning disable CS0618
+
 public class CompressionTest : TestBase {
     [Theory]
     [InlineData(CompressionMethod.None)]

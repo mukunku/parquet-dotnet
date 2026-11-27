@@ -270,7 +270,7 @@ class DefaultCompressor : ICompressor {
         if(decoded < 0) {
             owner.Dispose();
             throw new ParquetException(
-                $"{CompressionMethod.LZ4} decompression failed, page data is neither Hadoop framed LZ4 nor a valid LZ4 block");
+                $"LZ4 decompression failed, page data is neither Hadoop framed LZ4 nor a valid LZ4 block");
         }
 
         return (decoded < destinationLength) ? owner.Slice(0, decoded) : owner;
@@ -324,7 +324,9 @@ class DefaultCompressor : ICompressor {
                 return await LzoCompress(source, level);
             case CompressionMethod.Brotli:
                 return await BrotliCompress(source, level);
+#pragma warning disable CS0618 // obsolete for users, still written when asked for
             case CompressionMethod.LZ4:
+#pragma warning restore CS0618
                 return await Lz4Compress(source, level);
             case CompressionMethod.Zstd:
                 return await ZstdCompress(source, level);
@@ -348,7 +350,9 @@ class DefaultCompressor : ICompressor {
                 return await LzoDecompress(source, destinationLength);
             case CompressionMethod.Brotli:
                 return await BrotliDecompress(source, destinationLength);
+#pragma warning disable CS0618 // obsolete for writing only, files using it are still read
             case CompressionMethod.LZ4:
+#pragma warning restore CS0618
                 return await Lz4Decompress(source, destinationLength);
             case CompressionMethod.Zstd:
                 return await ZstdDecompress(source, destinationLength);
