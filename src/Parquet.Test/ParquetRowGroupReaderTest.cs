@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Parquet.Data;
 using Parquet.Schema;
@@ -39,6 +40,38 @@ public class ParquetRowGroupReaderTest : TestBase {
                 Assert.Throws<ParquetException>(() => rowGroupReader.GetStatistics(nonExistingField));
             }
         }
+    }
+
+    /// <summary>
+    /// ReadAsync into nullable memory rents a definition level buffer from the shared pool. Required columns never
+    /// write definition levels, so leftovers from an earlier use of the pool (negative numbers here) used to be taken
+    /// for nulls, returning random nulls in a column that cannot contain any and shifting the following values.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_Nullable_RequiredColumn_IgnoresPooledGarbage() {
+        const int count = 10_000;
+        var field = new DataField<int>("id");   // int, not int?: required column
+        var schema = new ParquetSchema(field);
+        using var ms = new System.IO.MemoryStream();
+        await using(ParquetWriter writer = await ParquetWriter.CreateAsync(schema, ms)) {
+            using ParquetRowGroupWriter rgw = writer.CreateRowGroup();
+            await rgw.WriteAsync<int>(field, System.Linq.Enumerable.Range(0, count).ToArray());
+        }
+
+        // leave junk in the shared pool, like an earlier read would
+        using(var junk = CommunityToolkit.HighPerformance.Buffers.MemoryOwner<int>.Allocate(count)) {
+            junk.Span.Fill(-7);
+        }
+
+        ms.Position = 0;
+        await using ParquetReader reader = await ParquetReader.CreateAsync(ms);
+        using ParquetRowGroupReader rgr = reader.OpenRowGroupReader(0);
+        Assert.Equal(0, reader.Schema.DataFields[0].MaxDefinitionLevel);
+
+        var values = new int?[count];
+        await rgr.ReadAsync<int>(reader.Schema.DataFields[0], values.AsMemory());
+
+        Assert.Equal(System.Linq.Enumerable.Range(0, count).Select(i => (int?)i), values);
     }
 
 }

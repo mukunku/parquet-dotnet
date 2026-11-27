@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.IO;
 using System.IO.Compression;
 using System.Threading.Tasks;
@@ -232,11 +233,82 @@ class DefaultCompressor : ICompressor {
         return owner.Slice(0, compressedSize);
     }
 
+    /// <summary>
+    /// LZ4_RAW: a single raw LZ4 block.
+    /// </summary>
+    private async ValueTask<IMemoryOwner<byte>> Lz4RawDecompress(Stream source, int destinationLength) {
+        byte[] compressed = source.ToByteArray()!;
+        if(compressed.Length == 0)
+            return MemoryOwner<byte>.Empty;   // e.g. the values section of an all-null data page V2
+        var owner = MemoryOwner<byte>.Allocate(destinationLength);
+        int decoded = LZ4Codec.Decode(compressed, owner.Span);
+        if(decoded < 0) {
+            owner.Dispose();
+            throw new ParquetException($"{CompressionMethod.Lz4Raw} decompression failed, page data is not a valid LZ4 block");
+        }
+
+        // IMPORTANT: .Slice() transfers ownership, so owner does not need to be disposed
+        return (decoded < destinationLength) ? owner.Slice(0, decoded) : owner;
+    }
+
+    /// <summary>
+    /// Legacy LZ4 codec, which is ambiguous: parquet-mr (Hadoop Lz4Codec, used by Spark, Hive etc.) writes Hadoop
+    /// frames, while parquet-cpp and this library write a single raw LZ4 block. Like Arrow, try Hadoop framing first
+    /// and fall back to a raw block when the data does not parse as Hadoop frames.
+    /// </summary>
     private async ValueTask<IMemoryOwner<byte>> Lz4Decompress(Stream source, int destinationLength) {
         byte[] compressed = source.ToByteArray()!;
+        if(compressed.Length == 0)
+            return MemoryOwner<byte>.Empty;   // e.g. the values section of an all-null data page V2
         var owner = MemoryOwner<byte>.Allocate(destinationLength);
-        LZ4Codec.Decode(compressed, owner.Span);
-        return owner;
+
+        if(TryDecodeHadoopLz4(compressed, owner.Span, out int decoded)) {
+            return (decoded < destinationLength) ? owner.Slice(0, decoded) : owner;
+        }
+
+        decoded = LZ4Codec.Decode(compressed, owner.Span);
+        if(decoded < 0) {
+            owner.Dispose();
+            throw new ParquetException(
+                $"{CompressionMethod.LZ4} decompression failed, page data is neither Hadoop framed LZ4 nor a valid LZ4 block");
+        }
+
+        return (decoded < destinationLength) ? owner.Slice(0, decoded) : owner;
+    }
+
+    /// <summary>
+    /// Decodes Hadoop Lz4Codec framing: one or more frames, each being a 4 byte big endian decompressed size, a 4 byte
+    /// big endian compressed size and that many bytes of raw LZ4 block. Returns false, without throwing, when the input
+    /// is not consistent with this framing, so that the caller can fall back to a raw block.
+    /// </summary>
+    internal static bool TryDecodeHadoopLz4(ReadOnlySpan<byte> input, Span<byte> output, out int decoded) {
+        const int prefixLength = sizeof(uint) * 2;
+        decoded = 0;
+        int inputOffset = 0;
+
+        while((input.Length - inputOffset) >= prefixLength) {
+            uint frameDecompressed = BinaryPrimitives.ReadUInt32BigEndian(input.Slice(inputOffset));
+            uint frameCompressed = BinaryPrimitives.ReadUInt32BigEndian(input.Slice(inputOffset + sizeof(uint)));
+            inputOffset += prefixLength;
+
+            if((frameCompressed > (uint)(input.Length - inputOffset)) ||
+               (frameDecompressed > (uint)(output.Length - decoded))) {
+                return false;
+            }
+
+            int frameDecoded = LZ4Codec.Decode(
+                input.Slice(inputOffset, (int)frameCompressed),
+                output.Slice(decoded, (int)frameDecompressed));
+            if(frameDecoded != (int)frameDecompressed) {
+                return false;
+            }
+
+            inputOffset += (int)frameCompressed;
+            decoded += frameDecoded;
+        }
+
+        // every byte must belong to a frame, otherwise this was not Hadoop framing after all
+        return (inputOffset == input.Length) && (decoded > 0);
     }
 
     public async ValueTask<IMemoryOwner<byte>> CompressAsync(
@@ -281,7 +353,7 @@ class DefaultCompressor : ICompressor {
             case CompressionMethod.Zstd:
                 return await ZstdDecompress(source, destinationLength);
             case CompressionMethod.Lz4Raw:
-                return await Lz4Decompress(source, destinationLength);
+                return await Lz4RawDecompress(source, destinationLength);
             default:
                 throw new NotSupportedException($"Compression method {method} is not supported.");
         }
