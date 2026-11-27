@@ -469,6 +469,29 @@ public class ParquetReaderOnTestFilesTest : TestBase {
     }
 
     /// <summary>
+    /// MAP without a value field: "optional group tags (MAP) { repeated group key_value { required binary key (String); } }".
+    /// Written by pyarrow 23.0.1 as map&lt;string, int32&gt; with rows {a:1, b:2}, {}, null, {c:3}; then only the footer was
+    /// rewritten to drop the value field and its column. pyarrow reads it as list&lt;key&gt;: [a, b], [], null, [c].
+    /// Used to fail with "dictionary container must have exactly 2 children but 1 found".
+    /// </summary>
+    [Fact]
+    public async Task Map_WithoutValue_ReadAsListOfKeys() {
+        using Stream s = OpenTestFile("special/map_without_value.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ListField tags = Assert.IsType<ListField>(r.Schema.Fields[1]);
+        DataField key = Assert.IsType<DataField>(tags.Item);
+        Assert.Equal("tags/key_value/key", key.Path.ToString());
+
+        using RawColumnData<ReadOnlyMemory<char>> keys = await rgr.ReadRawColumnDataAsync<ReadOnlyMemory<char>>(key);
+        // Values is sized for every entry, only the defined ones (DL == max) are filled
+        Assert.Equal(new[] { "a", "b", "c" }, keys.Values[..3].ToArray().Select(v => v.ToString()));
+        Assert.Equal(new[] { 2, 2, 1, 0, 2 }, keys.DefinitionLevels.ToArray());   // a, b | empty | null | c
+        Assert.Equal(new[] { 0, 1, 0, 0, 0 }, keys.RepetitionLevels.ToArray());
+    }
+
+    /// <summary>
     /// Implicit lists (repeated groups with no LIST annotation) with several fields, top level and inside a struct:
     ///   required int32 id;
     ///   repeated group addresses { required binary street (String); optional int32 zip; }

@@ -120,6 +120,37 @@ static class SchemaEncoder {
         return true;
     }
 
+    /// <summary>
+    /// A MAP whose key_value group has only a key field. The spec allows the value to be omitted; such a map is a set
+    /// of keys, and like pyarrow we read it as a list of the keys (key_value being the list's repeated group).
+    /// </summary>
+    static bool TryBuildKeyOnlyMap(List<SchemaElement> schema,
+        ref int index, out int ownedChildren,
+        out ListField? field) {
+
+        SchemaElement root = schema[index];
+        bool isKeyOnlyMap =
+            root.IsMap() &&
+            ((index + 1) < schema.Count) &&
+            (schema[index + 1].NumChildren == 1);
+        if(!isKeyOnlyMap) {
+            ownedChildren = 0;
+            field = null;
+            return false;
+        }
+
+        SchemaElement keyValue = schema[index + 1];
+        field = ListField.CreateWithNoItem(root.Name, root.RepetitionType != FieldRepetitionType.REQUIRED);
+        field.ContainerName = keyValue.Name;
+        field.Path = new FieldPath(root.Name, keyValue.Name);
+        field.SchemaElement = root;
+        field.GroupSchemaElement = keyValue;
+
+        index += 2;          // skip the map and its key_value group
+        ownedChildren = 1;   // the key becomes the list's item
+        return true;
+    }
+
     static bool TryBuildMap(List<SchemaElement> schema,
         ref int index, out int ownedChildren,
         out MapField? field) {
@@ -196,6 +227,8 @@ static class SchemaEncoder {
 
         if(TryBuildList(schema, ref index, out ownedChildCount, out ListField? lf)) {
             f = lf;
+        } else if(TryBuildKeyOnlyMap(schema, ref index, out ownedChildCount, out ListField? klf)) {
+            f = klf;
         } else if(TryBuildMap(schema, ref index, out ownedChildCount, out MapField? mf)) {
             f = mf;
         } else if(TryBuildStruct(schema, ref index, out ownedChildCount, out StructField? sf)) {

@@ -608,6 +608,40 @@ public class SchemaTest : TestBase {
         Assert.Equal(1, tags.Item.MaxDefinitionLevel);
     }
 
+    /// <summary>
+    /// The spec allows a MAP's key_value group to omit the value field. Such a map is a set of keys; like pyarrow we
+    /// read it as a list of the keys (used to throw "dictionary container must have exactly 2 children but 1 found").
+    /// </summary>
+    [Fact]
+    public void Decode_map_without_value_is_list_of_keys() {
+        ParquetSchema schema = ThriftFooter.Parse(
+            new SchemaElement {
+                Name = "tags",
+                RepetitionType = FieldRepetitionType.OPTIONAL,
+                ConvertedType = CT.MAP,
+                NumChildren = 1
+            },
+            new SchemaElement {
+                Name = "key_value",
+                RepetitionType = FieldRepetitionType.REPEATED,
+                NumChildren = 1
+            },
+            new SchemaElement {
+                Name = "key",
+                RepetitionType = FieldRepetitionType.REQUIRED,
+                Type = TT.BYTE_ARRAY,
+                ConvertedType = CT.UTF8
+            });
+
+        ListField tags = Assert.IsType<ListField>(Assert.Single(schema.Fields));
+        Assert.True(tags.IsNullable);
+        DataField key = Assert.IsType<DataField>(tags.Item);
+        Assert.Equal(typeof(ReadOnlyMemory<char>), key.ClrType);   // strings are read as ReadOnlyMemory<char>
+        Assert.Equal("tags/key_value/key", key.Path.ToString());
+        Assert.Equal(1, key.MaxRepetitionLevel);
+        Assert.Equal(2, key.MaxDefinitionLevel);
+    }
+
     [Fact]
     public void Augment_changes_name_and_path() {
         var typeSchema = new ParquetSchema(
