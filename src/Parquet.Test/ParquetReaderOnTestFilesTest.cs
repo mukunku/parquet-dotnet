@@ -690,6 +690,23 @@ public class ParquetReaderOnTestFilesTest : TestBase {
     }
 
     /// <summary>
+    /// A DELTA_BINARY_PACKED DATE column (pyarrow 23.0.1, <c>column_encoding="DELTA_BINARY_PACKED"</c>) holding
+    /// 2024-05-17, day 2000000000 (out of range) and null. Delta pages of dates and timestamps ignored
+    /// <see cref="ParquetOptions.DateTimeOutOfRangeHandling"/> and always threw.
+    /// </summary>
+    [Fact]
+    public async Task DeltaBinaryPackedDate_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile("special/delta_out_of_range_date_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] dates = await ReadNullableValuesAsync<DateTime>(rgr, Assert.Single(r.Schema.GetDataFields()));
+        Assert.Equal(new DateTime?[] { new DateTime(2024, 5, 17), DateTime.MaxValue, null }, dates);
+    }
+
+    /// <summary>
     /// INT96 timestamps written by pyarrow 23.0.1 (<c>use_deprecated_int96_timestamps=True</c>, dictionary encoded),
     /// read as raw integers with <see cref="ParquetOptions.TreatBigIntegersAsDates"/> off. This used to fail with
     /// "Cannot use type 'System.Numerics.BigInteger'. Only value types without pointers or references are supported".

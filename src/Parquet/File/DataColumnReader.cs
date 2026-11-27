@@ -354,7 +354,7 @@ class DataColumnReader {
                     try {
                         int n = DeltaBinaryPackedEncoder.Decode(src, buf.AsSpan(), totalValuesInPage, out _);
                         ParquetPlainEncoder.Decode(dest, n, _schemaElement,
-                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read);
+                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read, _options);
                         return read;
                     } finally {
                         ArrayPool<int>.Shared.Return(buf);
@@ -365,7 +365,7 @@ class DataColumnReader {
                     try {
                         int n = DeltaBinaryPackedEncoder.Decode(src, buf.AsSpan(), totalValuesInPage, out _);
                         ParquetPlainEncoder.Decode(dest, n, _schemaElement,
-                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read);
+                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read, _options);
                         return read;
                     } finally {
                         ArrayPool<long>.Shared.Return(buf);
