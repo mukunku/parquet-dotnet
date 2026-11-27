@@ -1,6 +1,6 @@
-﻿# Parquet.Net.Data.Analysis
+﻿# Parquet.Net.Data.Analysis.mukunku
 
-Adds [Microsoft.Data.Analysis](https://www.nuget.org/packages/Microsoft.Data.Analysis) `DataFrame` support to [Parquet.Net](https://www.nuget.org/packages/Parquet.Net): read a Parquet file into a `DataFrame`, and write a `DataFrame` to a Parquet file.
+Adds [Microsoft.Data.Analysis](https://www.nuget.org/packages/Microsoft.Data.Analysis) `DataFrame` support to [Parquet.Net.mukunku](https://www.nuget.org/packages/Parquet.Net.mukunku): read a Parquet file into a `DataFrame`, and write a `DataFrame` to a Parquet file.
 
 ```csharp
 using Microsoft.Data.Analysis;
