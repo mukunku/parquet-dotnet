@@ -22,7 +22,7 @@
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-        <Authors>Ivan Gavryliuk (@aloneguid)</Authors>
+        <Authors>Ivan Gavryliuk (@aloneguid), mukunku</Authors>
         <Product />
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/mukunku/parquet-dotnet</PackageProjectUrl>
