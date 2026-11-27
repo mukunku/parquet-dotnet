@@ -26,6 +26,7 @@
 - Data page V2 reader skipped repetition/definition levels based on the schema instead of the byte lengths in the page header. Pages carrying levels the schema does not expect (e.g. definition levels on a required column) were decompressed from the wrong offset, failing with "The archive entry was compressed using an unsupported compression method" for GZIP.
 
 ## Breaking changes
+- The default `ParquetOptions.CompressionLevel` is `Optimal` again. It was silently changed to `SmallestSize` in 6.0.0, which made gzip, Brotli, Zstd and LZ4 writes slower (Snappy has no levels). Set `CompressionLevel = CompressionLevel.SmallestSize` to keep the 6.0 / 6.1 behaviour. ([#765](../issues/765.md))
 - `TimeOnly` columns **written by 6.1.x class serializer** contain .NET ticks, not microseconds. 6.2.0 reads them the same way every other Parquet reader does: values come back 10x too large, and times after about 02:24 throw. If you have such files, read them with 6.1.x and rewrite them with 6.2.0. Files from other writers and from Parquet.Net before 6.1.0 are not affected. ([#796](../issues/796.md))
 - Out-of-range DATE, TIMESTAMP and INT96 values now throw `ParquetException` instead of `ArgumentOutOfRangeException`. INT96 timestamps before year 1 now also throw by default, instead of returning a made-up date in year 1. Set `ParquetOptions.DateTimeOutOfRangeHandling` to `Clamp` to get `MinValue` / `MaxValue` instead.
 
