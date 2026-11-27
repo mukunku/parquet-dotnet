@@ -1,11 +1,11 @@
 ﻿using Parquet.Schema;
 using Parquet.Serialization;
 using Parquet.Serialization.Dremel;
-using Parquet.Test.Serialisation.Paper;
+using Parquet.Test.Serialization.Paper;
 using Parquet.Test.Util;
 using Xunit;
 
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 /// <summary>
 /// These tests validate repetition and definition levels are generated correctly according to the main

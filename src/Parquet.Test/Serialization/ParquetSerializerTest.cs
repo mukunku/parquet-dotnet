@@ -12,7 +12,7 @@ using Parquet.Serialization.Attributes;
 using Parquet.Test.Xunit;
 using Xunit;
 
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 /// <summary>
 /// When writing tests for this class, please note that you must write the test for strong typed entities, and for
@@ -670,7 +670,7 @@ public class ParquetSerializerTest : TestBase {
             }
         };
 
-        // serialise
+        // serialize
         using var ms = new MemoryStream();
         await ParquetSerializer.SerializeAsync(data, ms);
 
@@ -686,7 +686,7 @@ public class ParquetSerializerTest : TestBase {
             }
         }
 
-        // deserialise
+        // deserialize
         ms.Position = 0;
         IList<MovementHistoryCompressed> data2 = (await ParquetSerializer.DeserializeAsync<MovementHistoryCompressed>(ms)).Data;
 
@@ -712,7 +712,7 @@ public class ParquetSerializerTest : TestBase {
             }
         };
 
-        // serialise
+        // serialize
         using var ms = new MemoryStream();
         await ParquetSerializer.SerializeAsync(data, ms);
 
@@ -727,7 +727,7 @@ public class ParquetSerializerTest : TestBase {
             }
         }
 
-        // deserialise
+        // deserialize
         ms.Position = 0;
         IList<MovementHistoryCompressed> data2 = (await ParquetSerializer.DeserializeAsync<MovementHistoryCompressed>(ms)).Data;
 
@@ -1156,7 +1156,7 @@ public class ParquetSerializerTest : TestBase {
             lowerCase = i % 2 == 0 ? "on" : "off"
         }).ToList();
 
-        // serialise to memory stream
+        // serialize to memory stream
         using var ms = new MemoryStream();
         await ParquetSerializer.SerializeAsync(data, ms);
         ms.Position = 0;

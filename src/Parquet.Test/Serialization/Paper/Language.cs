@@ -1,4 +1,4 @@
-﻿namespace Parquet.Test.Serialisation.Paper;
+﻿namespace Parquet.Test.Serialization.Paper;
 
 class Language {
     public string? Code { get; set; }

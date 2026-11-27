@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Parquet.Data;
 using Parquet.Schema;
 
-namespace Parquet.Test.Serialisation.Paper;
+namespace Parquet.Test.Serialization.Paper;
 
 class Document {
     public long DocId { get; set; }

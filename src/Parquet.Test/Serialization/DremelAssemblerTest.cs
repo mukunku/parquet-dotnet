@@ -2,11 +2,11 @@
 using System.Collections.Generic;
 using Parquet.Serialization;
 using Parquet.Serialization.Dremel;
-using Parquet.Test.Serialisation.Paper;
+using Parquet.Test.Serialization.Paper;
 using Parquet.Test.Xunit;
 using Xunit;
 
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 public class DremelAssemblerTest {
 

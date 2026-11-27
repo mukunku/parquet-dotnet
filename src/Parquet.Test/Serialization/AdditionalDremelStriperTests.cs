@@ -4,7 +4,7 @@ using Parquet.Serialization;
 using Parquet.Serialization.Dremel;
 using Xunit;
 
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 public class TestRow {
     public List<int>? Numbers { get; set; } = [];

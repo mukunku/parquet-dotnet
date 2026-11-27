@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Parquet.Test.Serialisation.Paper;
+namespace Parquet.Test.Serialization.Paper;
 
 class Name {
 

@@ -4,6 +4,9 @@
 - Reading `FLOAT` and `DOUBLE` columns encoded with ALP (Adaptive Lossless floating-Point, encoding 10), the new floating-point encoding in the Parquet format (currently marked as preview). Decoding only; Parquet.Net does not write ALP. The reserved ALP-RD mode is not supported and reported as such. ([#3](https://github.com/mukunku/parquet-dotnet/issues/3))
 - `ParquetOptions.DateTimeOutOfRangeHandling` controls what happens when a DATE, TIMESTAMP or INT96 value is outside the range `DateTime` / `DateOnly` can represent (years 1 to 9999): `Throw` (default) raises a `ParquetException` naming the column and the raw value, `Clamp` returns the type's `MinValue` / `MaxValue`. Such values are valid Parquet, e.g. DuckDB writes `infinity` / `-infinity` as the largest / smallest possible values.
 
+## Improvements
+- "Serialize" is now spelled consistently (it was mixed with "serialise") in documentation comments and exception messages, e.g. "failed to serialize data column". Public API names were not affected. ([#608](../issues/608.md))
+
 ## Bugs fixed
 - RLE encoded boolean columns, which pyarrow writes by default in data page V2, were read as all `false` (in 5.x they threw `DivideByZeroException`). Booleans are now decoded with bit width 1 and the 4 byte length prefix the spec requires in data pages. ([#638](../issues/638.md))
 - Metadata fields unknown to this version (e.g. added by newer writers) were not skipped correctly: skipping an unknown struct read its fields' headers but not their values, so the metadata after it was misread, and unknown sets and maps could not be skipped at all ("don't know how to skip type Set"). Lists, sets and maps of booleans were skipped short as well. ([#640](../issues/640.md), [#544](../issues/544.md), [#800](../issues/800.md))

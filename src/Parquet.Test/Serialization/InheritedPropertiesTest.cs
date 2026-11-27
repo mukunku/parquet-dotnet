@@ -1,4 +1,4 @@
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 public class InheritedPropertiesTest : TestBase {
     private InheritedClass[] GenerateRecordsToSerialize() {

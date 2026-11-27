@@ -11,8 +11,6 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 
 ## Open issues
 
-**Fixed in** is the first release containing the fix, for issues still listed as open here although they were fixed later. The version comes from the release notes, or from the maintainer's comment in the thread when the notes don't mention the issue (#548, #563, #583). _(likely)_ means only the title survives, so the match is inferred.
-
 | # | Title | Created | Status | Fixed in |
 |---:|---|---|---|---|
 | [302](302.md) | Enum serialization | 2023-04-18 | Partially recovered | |
@@ -54,7 +52,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [594](594.md) | [BUG]: Cannot Serialize List of Dictionary | 2025-02-11 | Recovered | |
 | [599](599.md) | DELTA_BINARY_PACKED on short,ushort,ulong,uint | 2025-02-28 | Partially recovered | |
 | [600](600.md) | isAdjustedToUTC is not valid. | 2025-03-03 | Recovered | |
-| [608](608.md) | Standardize the usage of "serialize" over "serialise" | 2025-04-03 | Recovered | |
+| [608](608.md) | Standardize the usage of "serialize" over "serialise" | 2025-04-03 | Recovered | 6.2.0 |
 | [609](609.md) | [BUG]: Floor - If first column is a boolean it is only partially rendered | 2025-04-07 | Recovered | |
 | [612](612.md) | [BUG]: Serialising a list of lists fails | 2025-04-17 | Recovered | 5.4.0 |
 | [613](613.md) | Required struct and DL miss match | 2025-04-30 | Recovered | |
@@ -85,7 +83,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [769](769.md) | [BUG]: Wrong stats for Timestamp micros | 2026-07-15 | Not recovered | |
 | [771](771.md) | [BUG]: TreatByteArrayAsString being ignored in specific case. | 2026-07-19 | Not recovered | |
 | [772](772.md) | [Feature request] Allow definitionLevels / nullablity to be user provided | 2026-07-20 | Not recovered | |
-| [773](773.md) | Code examples in README.md do not compile | 2026-07-21 | Not recovered | |
+| [773](773.md) | Code examples in README.md do not compile | 2026-07-21 | Not recovered | n/a: docs moved out in 6.1.0 |
 | [775](775.md) | [BUG]: There is no public API to read string values from a list column directly and no example | 2026-07-29 | Not recovered | |
 | [778](778.md) | [BUG]: element type System.DateTime is not supported in DELTA_BINARY_PACKED | 2026-08-05 | Not recovered | |
 | [793](793.md) | Change Deserialization to use Activator.CreateInstance | 2026-09-18 | Not recovered | |

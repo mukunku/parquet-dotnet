@@ -145,13 +145,13 @@ public class ParquetOptions {
     public bool PropertyNameCaseInsensitive { get; set; } = false;
 
     /// <summary>
-    /// When using untyped serialisation, prefers using <see cref="System.String"/> when reading string values, instead
+    /// When using untyped serialization, prefers using <see cref="System.String"/> when reading string values, instead
     /// of <see cref="System.ReadOnlyMemory{Char}"/>.
     /// </summary>
     public static bool PreferUntypedString { get; set; } = true;
 
     /// <summary>
-    /// When using untyped serialisation, prefers using <see cref="byte"/> array when reading byte array values, instead
+    /// When using untyped serialization, prefers using <see cref="byte"/> array when reading byte array values, instead
     /// of <see cref="System.ReadOnlyMemory{Byte}"/>.
     /// </summary>
     public static bool PreferUntypedByteArray { get; set; } = true;

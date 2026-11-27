@@ -6,7 +6,7 @@ using Parquet.Serialization;
 using Parquet.Serialization.Attributes;
 using Xunit;
 
-namespace Parquet.Test.Serialisation;
+namespace Parquet.Test.Serialization;
 
 #pragma warning disable CS0649
 
