@@ -61,7 +61,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [621](621.md) | clarification of "zero dependencies" | 2025-06-16 | Recovered | |
 | [623](623.md) | DataPageHeaderV2.IsCompressed is defaulting to false on read even though the spec seems to say it should be true | 2025-06-20 | Recovered | 5.3.0 |
 | [624](624.md) | Ability to specify custom deserialization for a specific type | 2025-06-21 | Recovered | |
-| [626](626.md) | NAOT Warning: TypeExtensions.GetNullable(Type) | 2025-06-27 | Recovered | |
+| [626](626.md) | NAOT Warning: TypeExtensions.GetNullable(Type) | 2025-06-27 | Recovered | Won't do: fixing 1 AOT issue won't address 70+ other issues |
 | [627](627.md) | IAsyncEnumerable serializer | 2025-07-02 | Recovered | |
 | [628](628.md) | How to enable dictionary encoding? | 2025-07-14 | Recovered | 5.5.0 |
 | [630](630.md) | [BUG]: Serialize doesn't handle empty + null list of nullable type | 2025-07-20 | Recovered | |
