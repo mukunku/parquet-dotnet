@@ -63,9 +63,6 @@ class DataColumnReader {
     public async ValueTask ReadAsync<T>(ReadingColumn<T> rc, CancellationToken cancellationToken) where T : struct {
         // how many values are in column chunk, as there may be multiple data pages
         int totalValuesInChunk = (int)_thriftColumnChunk.MetaData!.NumValues;
-        int definedValuesCount = totalValuesInChunk;
-        if(_stats?.NullCount != null)
-            definedValuesCount -= (int)_stats.NullCount.Value;
 
         long fileOffset = GetFileOffset();
         long pageOffset = fileOffset;
