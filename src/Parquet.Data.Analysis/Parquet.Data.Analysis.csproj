@@ -37,7 +37,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Parquet\Parquet.csproj" />
-        <PackageReference Include="Microsoft.Data.Analysis" Version="0.23.0" />
+        <PackageReference Include="Microsoft.Data.Analysis" />
     </ItemGroup>
 
     <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -48,7 +48,7 @@
     </PropertyGroup>
 
     <ItemGroup Condition="'$(Configuration)' == 'Release'">
-        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
     </ItemGroup>
 
     <ItemGroup>

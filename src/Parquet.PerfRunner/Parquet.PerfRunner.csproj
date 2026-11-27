@@ -11,10 +11,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
-        <PackageReference Include="ParquetSharp" Version="24.0.0" />
-        <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
-        <PackageReference Include="SystemIOCompression.Zstandard.Backporting" Version="11.0.4" />
+        <PackageReference Include="BenchmarkDotNet" />
+        <PackageReference Include="ParquetSharp" />
+        <PackageReference Include="ZstdSharp.Port" />
+        <PackageReference Include="SystemIOCompression.Zstandard.Backporting" />
     </ItemGroup>
 
     <!-- normally, reference project directly -->
@@ -24,7 +24,7 @@
 
     <!-- for perf testing specific Parquet versions -->
     <ItemGroup Condition="'$(ParquetVersion)' != ''">
-        <PackageReference Include="Parquet.Net" Version="$(ParquetVersion)" />
+        <PackageReference Include="Parquet.Net" />
     </ItemGroup>
 
 </Project>
