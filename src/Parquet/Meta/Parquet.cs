@@ -210,6 +210,11 @@ public enum Encoding {
     /// </summary>
     BYTE_STREAM_SPLIT = 9,
 
+    /// <summary>
+    /// Adaptive Lossless floating-Point (ALP) encoding for FLOAT and DOUBLE. Losslessly converts decimal-like floating-point values to integers via decimal scaling, then applies Frame of Reference (FOR) encoding and bit-packing; values that cannot be converted losslessly are stored as exceptions. See Encodings.md for the detailed specification.
+    /// </summary>
+    ALP = 10,
+
 }
 
 /// <summary>
