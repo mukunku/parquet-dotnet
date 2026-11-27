@@ -8,7 +8,7 @@ It's published on NuGet as [Parquet.Net.mukunku](https://www.nuget.org/packages/
 
 Bug reports and pull requests are welcome, but please keep in mind this is a side project, so I can't promise a roadmap or support.
 
-👉 Project owner's original [documentation](https://www.aloneguid.uk/projects/parquet-dotnet/) 👈
+👉 Project creator's original [documentation](https://www.aloneguid.uk/projects/parquet-dotnet/) 👈
 
 ## Recovered issues
 
