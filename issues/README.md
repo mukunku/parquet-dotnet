@@ -32,7 +32,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [532](532.md) | Support RLE encoding in data pages for bools | 2024-07-16 | Recovered | |
 | [533](533.md) | [BUG]: Incorrect data type for TimeSpan | 2024-07-19 | Recovered | |
 | [535](535.md) | [BUG]: non null string fails with InvalidDataException and is wrongly flagged as nullable | 2024-07-22 | Recovered | |
-| [544](544.md) | [BUG]: "don't know how to skip type Set" error | 2024-08-26 | Recovered | |
+| [544](544.md) | [BUG]: "don't know how to skip type Set" error | 2024-08-26 | Recovered | 6.2.0 |
 | [545](545.md) | Support `ParquetTimestampResolution.Microseconds` for Unity (.Net Standard 2.1) | 2024-09-01 | Recovered | |
 | [548](548.md) | [BUG]:  | 2024-09-10 | Recovered | 5.0.0 |
 | [552](552.md) | [BUG]: Possible multiple enumeration while serializing | 2024-09-13 | Recovered | |
@@ -70,13 +70,13 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [634](634.md) | [BUG]: Floor has incorrect installer hash when fetched from winget | 2025-08-02 | Recovered | |
 | [635](635.md) | [BUG]: Very large parquet files cannot be read | 2025-08-03 | Partially recovered | |
 | [638](638.md) | [BUG]: `DivideByZeroException` when reading boolean columns in Parquet.Net 5.x (RLE decoding bug) | 2025-08-12 | Recovered | 6.2.0 |
-| [640](640.md) | Possibly faulty field skipping for thrift structs during reading | 2025-08-15 | Recovered | |
+| [640](640.md) | Possibly faulty field skipping for thrift structs during reading | 2025-08-15 | Recovered | 6.2.0 |
 | [642](642.md) | DELTA_BINARY_PACKED on DateTime | 2025-08-31 | Recovered | |
 | [643](643.md) | Inconsistent results when encoding Boolean values | 2025-09-05 | Partially recovered | 5.4.0 |
 | [648](648.md) | [BUG]: Anything other than a `class` cannot be desrialsed | 2025-09-18 | Recovered | |
 | [666](666.md) | [BUG]: Unhandled exception: System.InvalidOperationException: Not all columns were written. | 2025-10-29 | Partially recovered | |
 | [721](721.md) | [BUG]: ParquetSerializer.DeserializeAllAsync on file with no rows throws InvalidOperationException | 2026-03-25 | Not recovered | 6.0.0 |
-| [723](723.md) | ThriftCompactProtocolReader.SkipField crashes on corrupted footer from interrupted append | 2026-03-26 | Not recovered | |
+| [723](723.md) | ThriftCompactProtocolReader.SkipField crashes on corrupted footer from interrupted append | 2026-03-26 | Not recovered | 6.2.0 (likely) |
 | [758](758.md) | [BUG]: Guid/UUID min/max statistics appear to use .NET Guid byte order | 2026-05-21 | Partially recovered | |
 | [764](764.md) | [BUG]: DeserializeAsync(rowGroupIndex:) allocates a result list sized to the whole file, causing OOM on large files | 2026-06-05 | Not recovered | |
 | [765](765.md) | gzip write default compression level changed from Optimal to SmallestSize in 6.0 (undocumented) | 2026-06-05 | Not recovered | |
@@ -92,7 +92,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [794](794.md) | Add WriteAllPartsAsync() Overload to accept Custom Metadata | 2026-09-22 | Not recovered | |
 | [796](796.md) | [BUG]: TimeSpan/TimeOnly output not compatible with AWS Athena | 2026-09-28 | Not recovered | 6.2.0 (likely) |
 | [797](797.md) | Read Performance & Allocations Regressed For Strings in V6 vs. V5 | 2026-10-09 | Not recovered | |
-| [800](800.md) | [BUG]: Corrupted readings on unknown parquet struct | 2026-11-04 | Not recovered | |
+| [800](800.md) | [BUG]: Corrupted readings on unknown parquet struct | 2026-11-04 | Not recovered | 6.2.0 (likely) |
 
 ## Closed issues
 
