@@ -1,6 +1,10 @@
 # 6.2.0
 
+## New
+- `ParquetOptions.Int96OutOfRangeHandling` controls what happens when an INT96 timestamp is outside the range `DateTime` can represent (years 1 to 9999): `Throw` (default) raises a `ParquetException` naming the column and the raw value, `Clamp` returns `DateTime.MinValue` / `DateTime.MaxValue`.
+
 ## Bugs fixed
+- INT96 timestamps after year 9999 failed with "Year, Month, and Day parameters describe an un-representable DateTime" without saying which column. Timestamps before year 1 were silently changed to year 1 keeping month and day (e.g. julian day 0 became `0001-11-24`), or threw for some dates such as 29 February. Because the dictionary page is decoded up front, a single such value made the whole column unreadable even if no row used it.
 - Class serializer wrote `TimeOnly` values as .NET ticks into columns annotated as `TIME(MICROS)`, so other readers (pyarrow, DuckDB, Spark etc.) saw wrong times, typically wrapped past midnight (e.g. `10:30` read as `09:00`). Reading had the same mistake in reverse, so files from other writers came back 10x too small. `TimeOnly` is now stored and read as real microseconds since midnight.
 - Class serializer could not read or write `TimeOnly` with `[ParquetTime(Precision = TimeUnitPrecision.Millis)]` at all ("No coercion operator is defined between types...").
 - Class serializer now throws a clear `InvalidCastException` when the class time precision does not match the file's (e.g. a `TimeOnly` property, which is micros, against a `TIME(NANOS)` column) instead of silently misreading the data.
@@ -9,6 +13,7 @@
 
 ## Breaking changes
 - `TimeOnly` columns **written by 6.1.x class serializer** contain .NET ticks, not microseconds. 6.2.0 reads them the same way every other Parquet reader does: values come back 10x too large, and times after about 02:24 throw. If you have such files, read them with 6.1.x and rewrite them with 6.2.0. Files from other writers and from Parquet.Net before 6.1.0 are not affected.
+- Out-of-range INT96 timestamps now throw `ParquetException` instead of `ArgumentOutOfRangeException`. Timestamps before year 1 now also throw by default, instead of returning a made-up date in year 1. Set `ParquetOptions.Int96OutOfRangeHandling` to `Clamp` to get `DateTime.MinValue` / `DateTime.MaxValue` instead.
 
 # 6.1.0
 

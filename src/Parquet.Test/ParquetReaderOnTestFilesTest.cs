@@ -476,6 +476,38 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         }
     }
 
+    // Dictionary-encoded INT96 column written by pyarrow 23.0.1, then two dictionary entries were patched in place:
+    // one to julian day 5373485 (10000-01-01, after DateTime.MaxValue) and one to julian day 0 (4714 BC).
+    private const string Int96OutOfRangeFile = "special/int96_out_of_range_dictionary.parquet";
+    private static readonly DateTime Int96OkValue = new(2024, 5, 17, 8, 30, 15);
+
+    [Fact]
+    public async Task Int96_OutOfRange_ThrowsByDefault() {
+        using Stream s = OpenTestFile(Int96OutOfRangeFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields[0]));
+        Assert.Contains("'ts'", ex.Message);
+        Assert.Contains("julian day 5373485", ex.Message);
+        Assert.Contains(nameof(Int96OutOfRangeHandling.Clamp), ex.Message);
+    }
+
+    [Fact]
+    public async Task Int96_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(Int96OutOfRangeFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            Int96OutOfRangeHandling = Int96OutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] values = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields[0]);
+        Assert.Equal(new DateTime?[] {
+            Int96OkValue, DateTime.MaxValue, Int96OkValue, DateTime.MinValue, null, Int96OkValue
+        }, values);
+    }
+
     [Fact]
     public async Task PyArrow22Async() {
         await using Stream s = OpenTestFile("special/pyarrow_v22.parquet");

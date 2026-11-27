@@ -34,6 +34,13 @@ public class ParquetOptions {
     public bool TreatBigIntegersAsDates { get; set; } = true;
 
     /// <summary>
+    /// What to do when an INT96 timestamp read as <see cref="DateTime"/> (see <see cref="TreatBigIntegersAsDates"/>)
+    /// falls outside the range <see cref="DateTime"/> can represent (years 1 to 9999). Defaults to
+    /// <see cref="Parquet.Int96OutOfRangeHandling.Throw"/>.
+    /// </summary>
+    public Int96OutOfRangeHandling Int96OutOfRangeHandling { get; set; } = Int96OutOfRangeHandling.Throw;
+
+    /// <summary>
     /// When set to true, parquet dates will be deserialized as <see cref="DateOnly"/>, otherwise as
     /// <see cref="DateTime"/> with missing time part.
     /// </summary>

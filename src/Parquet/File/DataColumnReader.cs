@@ -109,7 +109,7 @@ class DataColumnReader {
         Span<T> dictionary = rc.AllocateDictionary(ph.DictionaryPageHeader!.NumValues);
 
         ParquetPlainEncoder.Decode(dictionary, ph.DictionaryPageHeader.NumValues,
-               _schemaElement!, bytes.Memory.Span, out int dictionaryOffset);
+               _schemaElement!, bytes.Memory.Span, out int dictionaryOffset, _options);
     }
 
     private long GetFileOffset() =>
@@ -241,7 +241,7 @@ class DataColumnReader {
             case Encoding.PLAIN: { // 0
                     ParquetPlainEncoder.Decode(rc.ValuesToReadInto,
                         totalValuesInPage,
-                        _schemaElement!, src, out int read);
+                        _schemaElement!, src, out int read, _options);
                     rc.MarkValuesRead(read);
                 }
                 break;

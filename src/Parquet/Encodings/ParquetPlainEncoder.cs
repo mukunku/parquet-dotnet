@@ -141,7 +141,8 @@ static class ParquetPlainEncoder {
         int count,
         SchemaElement tse,
         Span<byte> source,
-        out int elementsRead) where T : struct {
+        out int elementsRead,
+        ParquetOptions? options = null) where T : struct {
 
         int rem = dest.Length;
         if(count > rem)
@@ -193,7 +194,7 @@ static class ParquetPlainEncoder {
             elementsRead = Decode(source, span.Slice(0, count));
         } else if(t == typeof(DateTime)) {
             Span<DateTime> span = dest.AsSpan<T, DateTime>();
-            elementsRead = Decode(source, span.Slice(0, count), tse);
+            elementsRead = Decode(source, span.Slice(0, count), tse, options);
         } else if(t == typeof(DateOnly)) {
             Span<DateOnly> span = dest.AsSpan<T, DateOnly>();
             elementsRead = Decode(source, span.Slice(0, count), tse);
@@ -316,7 +317,7 @@ static class ParquetPlainEncoder {
         } else if(tse.Type == TType.INT96) {
             if(value.Length == 12)
                 if(options?.TreatBigIntegersAsDates ?? false)
-                    result = new NanoTime(value.AsSpan()).ToDateTime();
+                    result = new NanoTime(value.AsSpan()).ToDateTime(options.Int96OutOfRangeHandling, tse.Name);
                 else
                     result = new BigInteger(value);
             else
@@ -1082,7 +1083,7 @@ static class ParquetPlainEncoder {
         }
     }
 
-    public static int Decode(Span<byte> source, Span<DateTime> data, SchemaElement tse) {
+    public static int Decode(Span<byte> source, Span<DateTime> data, SchemaElement tse, ParquetOptions? options = null) {
         switch(tse.Type) {
             case TType.INT32:
                 int[] ints = ArrayPool<int>.Shared.Rent(data.Length);
@@ -1137,18 +1138,15 @@ static class ParquetPlainEncoder {
                 } finally {
                     ArrayPool<long>.Shared.Return(longs);
                 }
-            case TType.INT96:
-                byte[] buf = ArrayPool<byte>.Shared.Rent(NanoTime.BinarySize * data.Length);
-                try {
+            case TType.INT96: {
+                    Int96OutOfRangeHandling outOfRange = options?.Int96OutOfRangeHandling ?? Int96OutOfRangeHandling.Throw;
                     int offset = 0;
                     int els = 0;
-                    while(offset + NanoTime.BinarySize <= source.Length) {
-                        data[els++] = new NanoTime(source.Slice(offset, NanoTime.BinarySize)).ToDateTime();
+                    while(offset + NanoTime.BinarySize <= source.Length && els < data.Length) {
+                        data[els++] = new NanoTime(source.Slice(offset, NanoTime.BinarySize)).ToDateTime(outOfRange, tse.Name);
                         offset += NanoTime.BinarySize;
                     }
                     return els;
-                } finally {
-                    ArrayPool<byte>.Shared.Return(buf);
                 }
             default:
                 throw new NotSupportedException();

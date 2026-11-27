@@ -46,26 +46,28 @@ readonly struct NanoTime {
         return r;
     }
     
-    public DateTime ToDateTime() {
-        long L = _julianDay + 68569;
-        long N = (long)(4 * L / 146097);
-        L = L - ((long)(((146097 * N) + 3) / 4));
-        long I = (long)((4000 * (L + 1) / 1461001));
-        L = L - (long)(1461 * I / 4) + 31;
-        long J = (long)(80 * L / 2447);
-        int Day = (int)(L - (long)(2447 * J / 80));
-        L = (long)(J / 11);
-        int Month = (int)(J + 2 - (12 * L));
-        int Year = (int)((100 * (N - 49)) + I + L);
-        // DateTimeOffset.MinValue.Year is 1
-        Year = Math.Max(Year, 1);
+    /// <summary>
+    /// Julian day number of 0001-01-01 (<see cref="DateTime.MinValue"/>), both being proleptic Gregorian.
+    /// </summary>
+    private const long JulianDayOfDateTimeMinValue = 1721426;
 
-        long timeOfDayTicks = _timeOfDayNanos / 100;
+    public DateTime ToDateTime(Int96OutOfRangeHandling outOfRange = Int96OutOfRangeHandling.Throw, string? columnName = null) {
+        // Int128 so that any julian day / nanos combination, including garbage, cannot overflow
+        Int128 ticks = ((Int128)_julianDay - JulianDayOfDateTimeMinValue) * TimeSpan.TicksPerDay + (_timeOfDayNanos / 100);
 
-        var result = new DateTime(Year, Month, Day,
-            0, 0, 0, DateTimeKind.Unspecified);
-        result = result.AddTicks(timeOfDayTicks);
+        if(ticks < 0 || ticks > DateTime.MaxValue.Ticks) {
+            switch(outOfRange) {
+                case Int96OutOfRangeHandling.Clamp:
+                    return ticks < 0 ? DateTime.MinValue : DateTime.MaxValue;
+                default:
+                    throw new ParquetException(
+                        $"INT96 timestamp (julian day {_julianDay}, {_timeOfDayNanos} nanoseconds of day) in column '{columnName}' " +
+                        $"is outside the range {nameof(DateTime)} can represent. " +
+                        $"Set {nameof(ParquetOptions)}.{nameof(ParquetOptions.Int96OutOfRangeHandling)} to " +
+                        $"{nameof(Int96OutOfRangeHandling.Clamp)} to clamp such values.");
+            }
+        }
 
-        return result;
+        return new DateTime((long)ticks, DateTimeKind.Unspecified);
     }
 }
