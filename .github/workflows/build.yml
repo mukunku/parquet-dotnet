@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install Python dependencies
-        run: pip install pyarrow pandas
+        run: pip install pyarrow
       # parquet-tools 1.9.0 (used by integration tests) uses Hadoop code that calls
       # Subject.getSubject(), which throws on Java 23+. Pin to an older LTS.
       - name: Setup Java

@@ -9,7 +9,6 @@ public class IntegrationBase : TestBase {
     private readonly string _toolsPath;
     private readonly string _toolsJarPath;
     private readonly string _javaExecName;
-    private readonly string _pythonExecName;
 
     public IntegrationBase() {
         _toolsPath = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "tools"));
@@ -18,13 +17,9 @@ public class IntegrationBase : TestBase {
         _javaExecName = Environment.OSVersion.Platform == PlatformID.Win32NT
             ? "java.exe"
             : "java";
-
-        _pythonExecName = Environment.OSVersion.Platform == PlatformID.Win32NT
-            ? "python3.exe"
-            : "python3";
     }
 
-    private string? ExecAndGetOutput(string execPath, string arguments) {
+    internal static string? ExecAndGetOutput(string execPath, string arguments) {
         var psi = new ProcessStartInfo {
             FileName = execPath,
             Arguments = arguments,
@@ -69,8 +64,10 @@ public class IntegrationBase : TestBase {
         return ExecAndGetOutput(_javaExecName, arguments);
     }
 
-    private string? ExecPythonAndGetOutout(string arguments) {
-        return ExecAndGetOutput(_pythonExecName, arguments);
+    private static string? ExecPythonAndGetOutput(string arguments) {
+        string python = PyArrowPython.Executable ?? throw new InvalidOperationException(
+            "Python with pyarrow not found (tried python3 and python on PATH).");
+        return ExecAndGetOutput(python, arguments);
     }
 
     protected string? ExecMrCat(string testFileName) {
@@ -78,6 +75,6 @@ public class IntegrationBase : TestBase {
     }
 
     protected string? ExecPyArrowToJson(string testFileName) {
-        return ExecPythonAndGetOutout($"Integration/pyarrow_to_json.py \"{testFileName}\"");
+        return ExecPythonAndGetOutput($"Integration/pyarrow_to_json.py \"{testFileName}\"");
     }
 }
