@@ -4,7 +4,7 @@ This is my personal fork of [Parquet.Net](https://www.nuget.org/packages/Parquet
 
 I mainly maintain this fork to support my other project, [ParquetViewer](https://github.com/mukunku/ParquetViewer), until I decide whether to keep using this library or switch to another one. Since the original project has been discontinued, I'm also sharing the bug fixes I make here in case they help anyone else.
 
-It's published on NuGet as [Parquet.Net.mukunku](https://www.nuget.org/packages/Parquet.Net.mukunku). The namespaces and API are the same as the original, so switching over should just be a package reference change. See the [release notes](https://github.com/mukunku/parquet-dotnet/blob/main/docs/release-notes.md) for what changed since 6.1.0.
+Releases are available on the [releases page](https://github.com/mukunku/parquet-dotnet/releases). See the [release notes](https://github.com/mukunku/parquet-dotnet/blob/main/docs/release-notes.md) for what changed since 6.1.0.
 
 Bug reports and pull requests are welcome, but please keep in mind this is a side project, so I can't promise a roadmap or support.
 
