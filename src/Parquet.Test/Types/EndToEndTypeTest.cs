@@ -480,6 +480,84 @@ public class EndToEndTypeTest : TestBase {
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>
+    /// Writing and reading an INT64 timestamp are implemented separately, so every unit is round-tripped to catch them
+    /// disagreeing on the unit or the time zone. The input has sub-microsecond ticks, so a wrong unit changes the value,
+    /// and is local, so a UTC conversion on one side only shifts it. UTC adjusted columns (legacy ones always are)
+    /// read back the UTC time, others the local wall clock time.
+    /// </summary>
+    [Theory]
+    [InlineData(DateTimeFormat.DateAndTime, DateTimeTimeUnit.Millis, true)]
+    [InlineData(DateTimeFormat.DateAndTimeMicros, DateTimeTimeUnit.Micros, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Millis, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Micros, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Nanos, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Millis, false)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Micros, false)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Nanos, false)]
+    public async Task Type_int64_timestamp_writes_and_reads_in_every_unit(DateTimeFormat format, DateTimeTimeUnit unit,
+        bool isAdjustedToUtc) {
+        var field = new DateTimeDataField("ts", format, isAdjustedToUtc, unit);
+        DateTime value = new DateTime(2024, 5, 17, 8, 30, 15, DateTimeKind.Local).AddTicks(1_234_567);
+
+        DateTime actual = await WriteReadSingleAsync(field, value);
+
+        DateTime stored = isAdjustedToUtc ? value.ToUniversalTime() : value;
+        long ticksPerUnit = unit switch {
+            DateTimeTimeUnit.Millis => TimeSpan.TicksPerMillisecond,
+            DateTimeTimeUnit.Micros => TimeSpan.TicksPerMicrosecond,
+            _ => 1      // nanoseconds are finer than ticks
+        };
+        var expected = new DateTime(stored.Ticks - (stored.Ticks % ticksPerUnit), stored.Kind);
+        Assert.Equal(expected.Kind, actual.Kind);
+        Assert.Equal(expected, actual);
+    }
+
+    private static readonly BigInteger Int96Max = (BigInteger.One << 95) - 1;
+    private static readonly BigInteger Int96Min = -(BigInteger.One << 95);
+
+    /// <summary>
+    /// <see cref="BigInteger"/> columns are INT96. Writing and reading them used to fail, as they were copied as raw
+    /// memory, which <see cref="BigInteger"/> (holding a reference) does not allow, and statistics were written with
+    /// the minimal byte length instead of 12 bytes, so they read back as null.
+    /// </summary>
+    [Fact]
+    public async Task Type_biginteger_writes_and_reads_as_int96() {
+        var field = new DataField<BigInteger>("big");
+        BigInteger[] values = [0, 1, -1, 1234567890123456789, Int96Max, Int96Min, BigInteger.Parse("-98765432109876543210")];
+
+        using var ms = new MemoryStream();
+        await using(ParquetWriter w = await ParquetWriter.CreateAsync(new ParquetSchema(field), ms)) {
+            using ParquetRowGroupWriter rg = w.CreateRowGroup();
+            await rg.WriteAsync<BigInteger>(field, values);
+        }
+
+        ms.Position = 0;
+        await using ParquetReader r = await ParquetReader.CreateAsync(ms, new ParquetOptions { TreatBigIntegersAsDates = false });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField readField = r.Schema.DataFields[0];
+        Assert.Equal(Meta.Type.INT96, rgr.RowGroup.Columns[0].MetaData!.Type);
+
+        RawColumnData<BigInteger> column = await rgr.ReadRawColumnDataAsync<BigInteger>(readField);
+        Assert.Equal(values, column.Values.ToArray());
+
+        DataColumnStatistics? stats = rgr.GetStatistics(readField);
+        Assert.Equal(Int96Min, stats?.MinValue);
+        Assert.Equal(Int96Max, stats?.MaxValue);
+    }
+
+    [Fact]
+    public async Task Type_biginteger_larger_than_int96_throws() {
+        var field = new DataField<BigInteger>("big");
+        using var ms = new MemoryStream();
+        await using ParquetWriter w = await ParquetWriter.CreateAsync(new ParquetSchema(field), ms);
+        using ParquetRowGroupWriter rg = w.CreateRowGroup();
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => rg.WriteAsync<BigInteger>(field, new[] { Int96Max + 1 }));
+        Assert.Contains("column 'big'", ex.Message);
+    }
+
     [Fact]
     public async Task Type_date_writes_and_reads() {
         var field = new DateTimeDataField("dateDate", DateTimeFormat.Date);

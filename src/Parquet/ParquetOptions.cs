@@ -18,10 +18,11 @@ public class ParquetOptions {
     public CompressionMethod CompressionMethod { get; set; } = CompressionMethod.Snappy;
 
     /// <summary>
-    /// Compression level to use when writing, defaults to <see cref="CompressionLevel.SmallestSize"/>. The actual
-    /// physical compression level varies based on compression algorithm.
+    /// Compression level to use when writing, defaults to <see cref="CompressionLevel.Optimal"/>, a balance between
+    /// speed and size. The actual physical compression level varies based on compression algorithm, and Snappy (the
+    /// default <see cref="CompressionMethod"/>) has no levels.
     /// </summary>
-    public CompressionLevel CompressionLevel { get; set; } = CompressionLevel.SmallestSize;
+    public CompressionLevel CompressionLevel { get; set; } = CompressionLevel.Optimal;
 
     /// <summary>
     /// When true byte arrays will be treated as UTF-8 strings when reading files.
@@ -32,6 +33,13 @@ public class ParquetOptions {
     /// When true, big integers are always treated as dates when reading files.
     /// </summary>
     public bool TreatBigIntegersAsDates { get; set; } = true;
+
+    /// <summary>
+    /// What to do when a DATE, TIMESTAMP or INT96 value falls outside the range <see cref="DateTime"/> and
+    /// <see cref="DateOnly"/> can represent (years 1 to 9999). Defaults to
+    /// <see cref="Parquet.DateTimeOutOfRangeHandling.Throw"/>.
+    /// </summary>
+    public DateTimeOutOfRangeHandling DateTimeOutOfRangeHandling { get; set; } = DateTimeOutOfRangeHandling.Throw;
 
     /// <summary>
     /// When set to true, parquet dates will be deserialized as <see cref="DateOnly"/>, otherwise as
@@ -137,13 +145,13 @@ public class ParquetOptions {
     public bool PropertyNameCaseInsensitive { get; set; } = false;
 
     /// <summary>
-    /// When using untyped serialisation, prefers using <see cref="System.String"/> when reading string values, instead
+    /// When using untyped serialization, prefers using <see cref="System.String"/> when reading string values, instead
     /// of <see cref="System.ReadOnlyMemory{Char}"/>.
     /// </summary>
     public static bool PreferUntypedString { get; set; } = true;
 
     /// <summary>
-    /// When using untyped serialisation, prefers using <see cref="byte"/> array when reading byte array values, instead
+    /// When using untyped serialization, prefers using <see cref="byte"/> array when reading byte array values, instead
     /// of <see cref="System.ReadOnlyMemory{Byte}"/>.
     /// </summary>
     public static bool PreferUntypedByteArray { get; set; } = true;

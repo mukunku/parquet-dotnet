@@ -15,6 +15,25 @@ namespace Parquet.Encodings;
 
 static class SchemaEncoder {
 
+    /// <summary>
+    /// Finds the group that contains <c>schema[index]</c>. The schema is flattened depth first, so the element just
+    /// before <paramref name="index"/> is usually a sibling or a sibling's descendant, not the parent.
+    /// </summary>
+    internal static SchemaElement? FindParent(List<SchemaElement> schema, int index) {
+        var open = new Stack<(int Index, int Remaining)>();   // groups whose children are still being listed
+        for(int i = 0; i < index; i++) {
+            if(open.Count > 0) {
+                (int gi, int remaining) = open.Pop();
+                if(remaining > 1)
+                    open.Push((gi, remaining - 1));
+            }
+            int children = schema[i].NumChildren ?? 0;
+            if(children > 0)
+                open.Push((i, children));
+        }
+        return open.Count > 0 ? schema[open.Peek().Index] : null;
+    }
+
     static bool TryBuildList(List<SchemaElement> schema,
         ref int index, out int ownedChildren,
         out ListField? field) {
@@ -23,15 +42,16 @@ static class SchemaEncoder {
         // A repeated field that is neither contained by a LIST- or MAP-annotated group nor annotated by LIST or MAP should be interpreted as a required list of required elements where the element type is the type of the field.
         // It's called "implicit list" in this codebase.
 
-        SchemaElement? parent = index > 0 ? schema[index - 1] : null;
         SchemaElement outerGroup = schema[index];
 
         bool isList = outerGroup.IsList();
         // According to the Parquet spec, a repeated field is an implicit list only if it is not contained by a LIST- or MAP-annotated group,
         // nor annotated by LIST or MAP itself.
-        bool isImplicitList = (parent == null || parent.ConvertedType == null) &&
-            outerGroup.RepetitionType == FieldRepetitionType.REPEATED &&
-            !outerGroup.IsMap();
+        SchemaElement? parent = FindParent(schema, index);
+        bool isImplicitList =
+            (outerGroup.RepetitionType == FieldRepetitionType.REPEATED) &&
+            (!isList && !outerGroup.IsMap()) &&
+            (!parent.IsList() && !parent.IsMap());
 
         if(!isList && !isImplicitList) {
             ownedChildren = 0;
@@ -54,9 +74,19 @@ static class SchemaEncoder {
                 index += 1;
                 ownedChildren = 1; //next element is the list's item
                 return true;
-            } else {
-                throw new NotSupportedException("Implicit list with multiple children is currently not supported");
             }
+
+            // A repeated group with several fields: the group itself is the element, i.e. a required list of
+            // required structs. The struct has no schema element of its own (it is the same group as the list), so
+            // the group's fields are assigned to it through the list and keep the paths written in the file
+            // (e.g. "addresses.street").
+            StructField item = StructField.CreateWithNoElements(outerGroup.Name);
+            item.IsNullable = false;
+            item.Path = field.Path;
+            field.AssignImplicitGroupItem(item);
+            index += 1;
+            ownedChildren = outerGroup.NumChildren!.Value;
+            return true;
         }
 
         //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#backward-compatibility-rules
@@ -87,6 +117,37 @@ static class SchemaEncoder {
         field.GroupSchemaElement = midGroup;
         index += 2;          //skip this element and child container
         ownedChildren = 1;   //we should get this element assigned back
+        return true;
+    }
+
+    /// <summary>
+    /// A MAP whose key_value group has only a key field. The spec allows the value to be omitted; such a map is a set
+    /// of keys, and like pyarrow we read it as a list of the keys (key_value being the list's repeated group).
+    /// </summary>
+    static bool TryBuildKeyOnlyMap(List<SchemaElement> schema,
+        ref int index, out int ownedChildren,
+        out ListField? field) {
+
+        SchemaElement root = schema[index];
+        bool isKeyOnlyMap =
+            root.IsMap() &&
+            ((index + 1) < schema.Count) &&
+            (schema[index + 1].NumChildren == 1);
+        if(!isKeyOnlyMap) {
+            ownedChildren = 0;
+            field = null;
+            return false;
+        }
+
+        SchemaElement keyValue = schema[index + 1];
+        field = ListField.CreateWithNoItem(root.Name, root.RepetitionType != FieldRepetitionType.REQUIRED);
+        field.ContainerName = keyValue.Name;
+        field.Path = new FieldPath(root.Name, keyValue.Name);
+        field.SchemaElement = root;
+        field.GroupSchemaElement = keyValue;
+
+        index += 2;          // skip the map and its key_value group
+        ownedChildren = 1;   // the key becomes the list's item
         return true;
     }
 
@@ -166,6 +227,8 @@ static class SchemaEncoder {
 
         if(TryBuildList(schema, ref index, out ownedChildCount, out ListField? lf)) {
             f = lf;
+        } else if(TryBuildKeyOnlyMap(schema, ref index, out ownedChildCount, out ListField? klf)) {
+            f = klf;
         } else if(TryBuildMap(schema, ref index, out ownedChildCount, out MapField? mf)) {
             f = mf;
         } else if(TryBuildStruct(schema, ref index, out ownedChildCount, out StructField? sf)) {

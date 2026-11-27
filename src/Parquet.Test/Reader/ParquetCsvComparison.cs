@@ -129,18 +129,17 @@ public class ParquetCsvComparison : TestBase {
         var columnNames = new List<string>();
 
         using(StreamReader fs = OpenTestFileReader(name)) {
-            var reader = new CsvReader(fs, CultureInfo.InvariantCulture);
+            using CsvReader reader = CsvReader.Create(fs, new CsvReaderOptions { Separator = ',' }, leaveOpen: true);
 
             //header
-            reader.Read();
-            columnNames.AddRange(Enumerable.Range(0, reader.ColumnCount).Select(i => reader.GetField(i)!));
+            columnNames.AddRange(reader.Headers);
 
             //values
             while(reader.Read()) {
                 var row = new Dictionary<string, string>();
-                for(int i = 0; i < reader.ColumnCount; i++) {
+                for(int i = 0; i < reader.FieldCount; i++) {
                     string columnName = columnNames[i];
-                    row[columnName] = reader.GetField(i)!;
+                    row[columnName] = reader.GetString(i);
                 }
                 result.Add(row);
             }

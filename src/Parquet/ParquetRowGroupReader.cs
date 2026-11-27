@@ -189,7 +189,9 @@ public class ParquetRowGroupReader : IDisposable {
 
         // allocate memory for non-nullable values and definition levels, which will be used to reconstruct nullable values
         using IMemoryOwner<T> nonNullMemory = MemoryOwner<T>.Allocate(values.Length);
-        using IMemoryOwner<int> definitionLevels = MemoryOwner<int>.Allocate((int)RowCount);
+        // pooled memory is not cleared, and required columns never write definition levels, so clear it: otherwise
+        // leftovers from earlier use (e.g. negative numbers) are taken for nulls
+        using IMemoryOwner<int> definitionLevels = MemoryOwner<int>.Allocate((int)RowCount, AllocationMode.Clear);
 
         // read non-null version of the column along with definition levels
         await ReadRawAsync(field, nonNullMemory.Memory, definitionLevels.Memory, repetitionLevels, cancellationToken);

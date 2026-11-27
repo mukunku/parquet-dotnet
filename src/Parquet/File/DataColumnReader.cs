@@ -63,9 +63,6 @@ class DataColumnReader {
     public async ValueTask ReadAsync<T>(ReadingColumn<T> rc, CancellationToken cancellationToken) where T : struct {
         // how many values are in column chunk, as there may be multiple data pages
         int totalValuesInChunk = (int)_thriftColumnChunk.MetaData!.NumValues;
-        int definedValuesCount = totalValuesInChunk;
-        if(_stats?.NullCount != null)
-            definedValuesCount -= (int)_stats.NullCount.Value;
 
         long fileOffset = GetFileOffset();
         long pageOffset = fileOffset;
@@ -109,7 +106,7 @@ class DataColumnReader {
         Span<T> dictionary = rc.AllocateDictionary(ph.DictionaryPageHeader!.NumValues);
 
         ParquetPlainEncoder.Decode(dictionary, ph.DictionaryPageHeader.NumValues,
-               _schemaElement!, bytes.Memory.Span, out int dictionaryOffset);
+               _schemaElement!, bytes.Memory.Span, out int dictionaryOffset, _options);
     }
 
     private long GetFileOffset() =>
@@ -172,13 +169,16 @@ class DataColumnReader {
         await using(Stream src = _inputStream.Sub(_inputStream.Position, ph.CompressedPageSize)) {
             await src.CopyToAsync(pageMemory.Memory, cancellationToken);
         }
-        int dataUsed = 0;
+        // V2 levels are stored uncompressed in front of the values and their sizes are always given in the header.
+        // Skip them by those sizes, not by what the schema implies: some writers emit levels for required columns.
+        int rlLength = ph.DataPageHeaderV2.RepetitionLevelsByteLength;
+        int dlLength = ph.DataPageHeaderV2.DefinitionLevelsByteLength;
+        int dataUsed = rlLength + dlLength;
 
         if(_dataField.MaxRepetitionLevel > 0) {
             int levelsRead = ReadLevels(pageMemory.Span,
                 _dataField.MaxRepetitionLevel, rc.RepetitionLevelsToReadInto,
-                ph.DataPageHeaderV2.NumValues, ph.DataPageHeaderV2.RepetitionLevelsByteLength, out int usedLength);
-            dataUsed += usedLength;
+                ph.DataPageHeaderV2.NumValues, rlLength, out _);
             rc.MarkRepetitionLevels(levelsRead);
 
             throw new NotImplementedException();
@@ -186,10 +186,9 @@ class DataColumnReader {
 
         if(_dataField.MaxDefinitionLevel > 0) {
             int levelsRead = ReadLevels(
-                pageMemory.Memory.Span.Slice(dataUsed), _dataField.MaxDefinitionLevel,
+                pageMemory.Memory.Span.Slice(rlLength), _dataField.MaxDefinitionLevel,
                 rc.DefinitionLevelsToReadInto,
-                ph.DataPageHeaderV2.NumValues, ph.DataPageHeaderV2.DefinitionLevelsByteLength, out int usedLength);
-            dataUsed += usedLength;
+                ph.DataPageHeaderV2.NumValues, dlLength, out _);
             rc.MarkDefinitionLevels(levelsRead, _dataField.MaxDefinitionLevel);
         }
 
@@ -239,7 +238,7 @@ class DataColumnReader {
             case Encoding.PLAIN: { // 0
                     ParquetPlainEncoder.Decode(rc.ValuesToReadInto,
                         totalValuesInPage,
-                        _schemaElement!, src, out int read);
+                        _schemaElement!, src, out int read, _options);
                     rc.MarkValuesRead(read);
                 }
                 break;
@@ -259,10 +258,12 @@ class DataColumnReader {
                         // todo: we can optimise this by implementing boolean RLE decoder
                         Span<bool> dest = rc.ValuesToReadInto.AsSpan<T, bool>();
 
+                        // Booleans are RLE encoded with bit width 1, and in data pages (V1 and V2) the encoded data
+                        // is prefixed with its 4 byte length, so let the decoder read it (spanLength: null).
                         int[] tmp = new int[dest.Length];
                         int read = RleBitpackedHybridEncoder.Decode(src,
-                            _schemaElement!.TypeLength ?? 0,
-                            src.Length, out int usedLength, tmp.AsSpan(), totalValuesInPage);
+                            bitWidth: 1,
+                            spanLength: null, out int usedLength, tmp.AsSpan(), totalValuesInPage);
 
                         // copy back to bool array
                         for(int i = 0; i < read; i++) {
@@ -301,8 +302,36 @@ class DataColumnReader {
                 break;
 
             case Encoding.BYTE_STREAM_SPLIT: {       // 9
-                    ByteStreamSplitEncoder.Decode(src, rc.ValuesToReadInto.Slice(0, totalValuesInPage));
-                    rc.MarkValuesRead(totalValuesInPage);
+                    if(ByteStreamSplitEncoder.CanDecodeDirectly<T>()) {
+                        ByteStreamSplitEncoder.Decode(src, rc.ValuesToReadInto.Slice(0, totalValuesInPage));
+                        rc.MarkValuesRead(totalValuesInPage);
+                    } else {
+                        // types converted from the physical value (dates, timestamps, decimals, fixed length byte
+                        // arrays): un-split into plain bytes and let the plain decoder do the conversion
+                        int width = _schemaElement!.Type switch {
+                            Meta.Type.INT32 or Meta.Type.FLOAT => 4,
+                            Meta.Type.INT64 or Meta.Type.DOUBLE => 8,
+                            Meta.Type.FIXED_LEN_BYTE_ARRAY => _schemaElement.TypeLength
+                                ?? throw new ParquetException($"column '{_dataField.Path}' is missing type length"),
+                            _ => throw new ParquetException(
+                                $"encoding {encoding} is not valid for physical type {_schemaElement.Type} in column '{_dataField.Path}'")
+                        };
+                        int plainLength = totalValuesInPage * width;
+                        byte[] plain = ArrayPool<byte>.Shared.Rent(plainLength);
+                        try {
+                            ByteStreamSplitEncoder.DecodeToPlain(src, plain.AsSpan(0, plainLength), width, totalValuesInPage);
+                            ParquetPlainEncoder.Decode(rc.ValuesToReadInto, totalValuesInPage,
+                                _schemaElement, plain.AsSpan(0, plainLength), out int read, _options);
+                            rc.MarkValuesRead(read);
+                        } finally {
+                            ArrayPool<byte>.Shared.Return(plain);
+                        }
+                    }
+                }
+                break;
+            case Encoding.ALP: {                     // 10
+                    int read = AlpEncoder.Decode(src, rc.ValuesToReadInto);
+                    rc.MarkValuesRead(read);
                 }
                 break;
             case Encoding.BIT_PACKED:                // 4 (deprecated)
@@ -325,7 +354,7 @@ class DataColumnReader {
                     try {
                         int n = DeltaBinaryPackedEncoder.Decode(src, buf.AsSpan(), totalValuesInPage, out _);
                         ParquetPlainEncoder.Decode(dest, n, _schemaElement,
-                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read);
+                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read, _options);
                         return read;
                     } finally {
                         ArrayPool<int>.Shared.Return(buf);
@@ -336,7 +365,7 @@ class DataColumnReader {
                     try {
                         int n = DeltaBinaryPackedEncoder.Decode(src, buf.AsSpan(), totalValuesInPage, out _);
                         ParquetPlainEncoder.Decode(dest, n, _schemaElement,
-                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read);
+                            MemoryMarshal.AsBytes(buf.AsSpan(0, n)), out int read, _options);
                         return read;
                     } finally {
                         ArrayPool<long>.Shared.Return(buf);

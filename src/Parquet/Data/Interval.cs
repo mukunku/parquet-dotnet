@@ -9,7 +9,7 @@ namespace Parquet.File.Values.Primitives;
 public struct Interval {
 
     /// <summary>
-    /// Binary serialised size
+    /// Binary serialized size
     /// </summary>
     public const int BinarySize = 12;
 

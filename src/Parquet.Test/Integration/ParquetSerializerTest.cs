@@ -47,7 +47,7 @@ public class ParquetSerializerTest : IntegrationBase {
         Assert.Contains("gen", javaCat);
     }
 
-    [NonMacOSFact]
+    [PyArrowFact]
     public async Task SimpleMapReadsWithPyArrow() {
         var data = Enumerable.Range(0, 10).Select(i => new IdWithTags {
             Id = i,

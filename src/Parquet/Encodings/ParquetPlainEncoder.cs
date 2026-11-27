@@ -78,7 +78,7 @@ static class ParquetPlainEncoder {
             StatsCompute.Compute(span, stats);
         } else if(t == typeof(BigInteger)) {
             ReadOnlySpan<BigInteger> span = sourceSpan.AsSpan<T, BigInteger>();
-            Encode(span, destination);
+            Encode(span, destination, tse);
             StatsCompute.Compute(span, stats);
         } else if(t == typeof(decimal)) {
             ReadOnlySpan<decimal> span = sourceSpan.AsSpan<T, decimal>();
@@ -141,7 +141,8 @@ static class ParquetPlainEncoder {
         int count,
         SchemaElement tse,
         Span<byte> source,
-        out int elementsRead) where T : struct {
+        out int elementsRead,
+        ParquetOptions? options = null) where T : struct {
 
         int rem = dest.Length;
         if(count > rem)
@@ -193,10 +194,10 @@ static class ParquetPlainEncoder {
             elementsRead = Decode(source, span.Slice(0, count));
         } else if(t == typeof(DateTime)) {
             Span<DateTime> span = dest.AsSpan<T, DateTime>();
-            elementsRead = Decode(source, span.Slice(0, count), tse);
+            elementsRead = Decode(source, span.Slice(0, count), tse, options);
         } else if(t == typeof(DateOnly)) {
             Span<DateOnly> span = dest.AsSpan<T, DateOnly>();
-            elementsRead = Decode(source, span.Slice(0, count), tse);
+            elementsRead = Decode(source, span.Slice(0, count), tse, options);
         } else if(t == typeof(TimeOnly)) {
             Span<TimeOnly> span = dest.AsSpan<T, TimeOnly>();
             elementsRead = Decode(source, span.Slice(0, count), tse);
@@ -258,7 +259,8 @@ static class ParquetPlainEncoder {
             result = BitConverter.GetBytes((ulong)value);
             return true;
         } else if(t == typeof(BigInteger)) {
-            result = ((BigInteger)value).ToByteArray();
+            result = new byte[Int96Size];
+            WriteInt96((BigInteger)value, result, tse);
             return true;
         } else if(t == typeof(decimal))
             return TryEncode((decimal)value, tse, out result);
@@ -285,7 +287,8 @@ static class ParquetPlainEncoder {
             result = ((Interval)value).GetBytes();
             return true;
         } else if(t == typeof(Guid)) {
-            result = ((Guid)value).ToByteArray();
+            // big endian (RFC 4122) like the data itself, see Encode(ReadOnlySpan<Guid>, ...)
+            result = ((Guid)value).ToByteArray(bigEndian: true);
             return true;
         } else if(t == typeof(string)) {
             result = System.Text.Encoding.UTF8.GetBytes((string)value);
@@ -316,7 +319,7 @@ static class ParquetPlainEncoder {
         } else if(tse.Type == TType.INT96) {
             if(value.Length == 12)
                 if(options?.TreatBigIntegersAsDates ?? false)
-                    result = new NanoTime(value.AsSpan()).ToDateTime();
+                    result = new NanoTime(value.AsSpan()).ToDateTime(options.DateTimeOutOfRangeHandling, tse.Name);
                 else
                     result = new BigInteger(value);
             else
@@ -330,6 +333,9 @@ static class ParquetPlainEncoder {
             return true;
         } else if(tse.Type == TType.FLOAT) {
             result = BitConverter.ToSingle(value, 0);
+            return true;
+        } else if((tse.Type == TType.FIXED_LEN_BYTE_ARRAY) && (tse.LogicalType?.UUID != null) && (value.Length == 16)) {
+            result = new Guid(value, bigEndian: true);
             return true;
         } else if(tse.Type == TType.BYTE_ARRAY)
             if(tse.IsString()) {
@@ -370,8 +376,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(days);
                 return true;
             case TType.INT64:
-                long unixTime = value.ToUtc().ToUnixMilliseconds();
-                result = BitConverter.GetBytes(unixTime);
+                result = BitConverter.GetBytes(ToInt64Timestamp(value, tse));
                 return true;
             case TType.INT96:
                 var nano = new NanoTime(value.ToUtc());
@@ -389,6 +394,17 @@ static class ParquetPlainEncoder {
         return true;
     }
 
+    /// <summary>
+    /// INT64 TIME values are microseconds unless the logical type says nanoseconds (MILLIS is INT32 only).
+    /// </summary>
+    private static bool IsTimeNanos(SchemaElement tse) => tse.LogicalType?.TIME?.Unit.NANOS != null;
+
+    private static long Int64TimeToTicks(long value, SchemaElement tse) =>
+        IsTimeNanos(tse) ? value / 100 : value * 10;
+
+    private static long TicksToInt64Time(long ticks, SchemaElement tse) =>
+        IsTimeNanos(tse) ? ticks * 100 : ticks / 10;
+
     private static bool TryEncode(TimeOnly value, SchemaElement tse, out byte[] result) {
         switch(tse.Type) {
             case TType.INT32:
@@ -396,7 +412,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(ms);
                 return true;
             case TType.INT64:
-                long micros = value.Ticks / 10;
+                long micros = TicksToInt64Time(value.Ticks, tse);
                 result = BitConverter.GetBytes(micros);
                 return true;
             default:
@@ -442,7 +458,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(ms);
                 return true;
             case TType.INT64:
-                long micros = value.Ticks / 10;
+                long micros = TicksToInt64Time(value.Ticks, tse);
                 result = BitConverter.GetBytes(micros);
                 return true;
             default:
@@ -697,9 +713,31 @@ static class ParquetPlainEncoder {
         destination.Write(bytes);
     }
 
-    public static void Encode(ReadOnlySpan<BigInteger> data, Stream destination) {
-        ReadOnlySpan<byte> bytes = MemoryMarshal.AsBytes(data);
-        destination.Write(bytes);
+    // BigInteger holds a reference, so unlike the other numbers it cannot be copied as raw memory. INT96 values are
+    // 12 byte little endian signed integers.
+    private const int Int96Size = 12;
+
+    private static void WriteInt96(BigInteger value, Span<byte> destination, SchemaElement tse) {
+        if(!value.TryWriteBytes(destination, out int written))
+            throw new ParquetException($"column '{tse.Name}': value {value} does not fit in INT96 (96 bits)");
+
+        // sign extend to the full 12 bytes
+        destination.Slice(written).Fill((value.Sign < 0) ? (byte)0xFF : (byte)0);
+    }
+
+    public static void Encode(ReadOnlySpan<BigInteger> data, Stream destination, SchemaElement tse) {
+        Span<byte> buffer = stackalloc byte[Int96Size];
+        foreach(BigInteger value in data) {
+            WriteInt96(value, buffer, tse);
+            destination.Write(buffer);
+        }
+    }
+
+    public static int Decode(Span<byte> source, Span<BigInteger> data) {
+        int count = Math.Min(data.Length, source.Length / Int96Size);
+        for(int i = 0; i < count; i++)
+            data[i] = new BigInteger(source.Slice(i * Int96Size, Int96Size));
+        return count;
     }
 
     public static int Decode<T>(Span<byte> source, Span<T> data) where T : struct {
@@ -806,13 +844,14 @@ static class ParquetPlainEncoder {
                     // convert each byte chunk to valid decimal bytes
                     int spos = 0;
                     while(read < data.Length) {
-                        int length = source.ReadInt32(spos);
-                        spos += sizeof(int);
-                        if(length > 0) {
-                            decimal dc = BigDecimal.ToSystemDecimal(source.Slice(spos, length).ToArray(), tse);
-                            spos += length;
-                            data[read++] = dc;
-                        }
+                        Span<byte> value = ReadLengthPrefixedValue(source, ref spos, tse, read, data.Length);
+                        // an empty value is not a valid DECIMAL (pyarrow rejects it too); it used to be skipped
+                        // without being counted, shifting the following values into the wrong rows
+                        if(value.Length == 0)
+                            throw new ParquetException(
+                                $"column '{tse.Name}': value {read + 1} is an empty byte array, which is not a valid DECIMAL, file is corrupt");
+                        data[read] = BigDecimal.ToSystemDecimal(value.ToArray(), tse);
+                        read++;
                     }
                     return read;
                 }
@@ -869,13 +908,14 @@ static class ParquetPlainEncoder {
                     // convert each byte chunk to valid decimal bytes
                     int spos = 0;
                     while(read < data.Length) {
-                        int length = source.ReadInt32(spos);
-                        spos += sizeof(int);
-                        if(length > 0) {
-                            var bd = new BigDecimal(source.Slice(spos, length).ToArray(), tse);
-                            spos += length;
-                            data[read++] = bd;
-                        }
+                        Span<byte> value = ReadLengthPrefixedValue(source, ref spos, tse, read, data.Length);
+                        // an empty value is not a valid DECIMAL (pyarrow rejects it too); it used to be skipped
+                        // without being counted, shifting the following values into the wrong rows
+                        if(value.Length == 0)
+                            throw new ParquetException(
+                                $"column '{tse.Name}': value {read + 1} is an empty byte array, which is not a valid DECIMAL, file is corrupt");
+                        data[read] = new BigDecimal(value.ToArray(), tse);
+                        read++;
                     }
                     return read;
                 }
@@ -926,6 +966,47 @@ static class ParquetPlainEncoder {
         }
     }
 
+    /// <summary>
+    /// Returns the next <paramref name="length"/> bytes of page data and advances <paramref name="offset"/>, throwing
+    /// a <see cref="ParquetException"/> naming the column if the page ends first.
+    /// </summary>
+    /// <param name="source">Page data</param>
+    /// <param name="offset">Position in <paramref name="source"/>, moved past the value</param>
+    /// <param name="length">Length of the value in bytes</param>
+    /// <param name="tse">Column schema element, for the error message</param>
+    /// <param name="valueIndex">Index of the value being read, for the error message</param>
+    /// <param name="expectedCount">Number of values the page should contain, for the error message</param>
+    private static Span<byte> SliceValue(Span<byte> source, ref int offset, int length, SchemaElement tse,
+        int valueIndex, int expectedCount) {
+        if((length < 0) || (offset < 0) || (length > (source.Length - offset)))
+            throw PageDataTooShort(tse, valueIndex, expectedCount);
+
+        Span<byte> value = source.Slice(offset, length);
+        offset += length;
+        return value;
+    }
+
+    /// <summary>
+    /// Reads a BYTE_ARRAY value (4 byte little endian length followed by the bytes) and advances
+    /// <paramref name="offset"/> past it, see <see cref="SliceValue"/>.
+    /// </summary>
+    private static Span<byte> ReadLengthPrefixedValue(Span<byte> source, ref int offset, SchemaElement tse,
+        int valueIndex, int expectedCount) {
+        if((offset < 0) || (offset > (source.Length - sizeof(int))))
+            throw PageDataTooShort(tse, valueIndex, expectedCount);
+
+        int length = source.ReadInt32(offset);
+        if(length < 0)
+            throw new ParquetException(
+                $"column '{tse.Name}': value {valueIndex + 1} has invalid length {length}, file is corrupt");
+        offset += sizeof(int);
+        return SliceValue(source, ref offset, length, tse, valueIndex, expectedCount);
+    }
+
+    private static ParquetException PageDataTooShort(SchemaElement tse, int valuesRead, int expectedCount) =>
+        new ParquetException(
+            $"column '{tse.Name}': page data ends after {valuesRead} of {expectedCount} values, file is corrupt");
+
     public static int Decode(Span<byte> source, Span<byte[]> data, SchemaElement tse) {
         int read = 0;
         int sourceOffset = 0;
@@ -935,21 +1016,15 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
             while(read < data.Length) {
-                byte[] el = source.Slice(sourceOffset, length).ToArray();
-                sourceOffset += length;
-                data[read++] = el;
+                Span<byte> value = SliceValue(source, ref sourceOffset, length, tse, read, data.Length);
+                data[read] = value.ToArray();
+                read++;
             }
         } else {
             while(read < data.Length) {
-                int length = source.ReadInt32(sourceOffset);
-                sourceOffset += sizeof(int);
-                if(length > 0) {
-                    byte[] el = source.Slice(sourceOffset, length).ToArray();
-                    sourceOffset += length;
-                    data[read++] = el;
-                } else {
-                    data[read++] = [];
-                }
+                Span<byte> value = ReadLengthPrefixedValue(source, ref sourceOffset, tse, read, data.Length);
+                data[read] = (value.Length > 0) ? value.ToArray() : [];
+                read++;
             }
         }
         return read;
@@ -964,24 +1039,47 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
             while(read < data.Length) {
-                ReadOnlyMemory<byte> el = source.Slice(sourceOffset, length).ToArray();
-                sourceOffset += length;
-                data[read++] = el;
+                Span<byte> value = SliceValue(source, ref sourceOffset, length, tse, read, data.Length);
+                data[read] = value.ToArray();
+                read++;
             }
         } else {
             while(read < data.Length) {
-                int length = source.ReadInt32(sourceOffset);
-                sourceOffset += sizeof(int);
-                if(length > 0) {
-                    ReadOnlyMemory<byte> el = source.Slice(sourceOffset, length).ToArray();
-                    sourceOffset += length;
-                    data[read++] = el;
-                } else {
-                    data[read++] = ReadOnlyMemory<byte>.Empty;
-                }
+                Span<byte> value = ReadLengthPrefixedValue(source, ref sourceOffset, tse, read, data.Length);
+                data[read] = (value.Length > 0) ? value.ToArray() : ReadOnlyMemory<byte>.Empty;
+                read++;
             }
         }
         return read;
+    }
+
+    /// <summary>
+    /// The INT64 value stored for <paramref name="value"/> in a timestamp column, in the column's unit. Used for both
+    /// data and statistics, so that min/max are always in the same unit as the values (they used to be milliseconds
+    /// for every column). Values are converted to UTC only for UTC adjusted columns (legacy converted types always
+    /// are); other columns store the local wall clock time as is, which is how they are read back.
+    /// </summary>
+    private static long ToInt64Timestamp(DateTime value, SchemaElement tse) {
+        if(tse.LogicalType?.TIMESTAMP is { } timestamp) {
+            if(timestamp.IsAdjustedToUTC)
+                value = value.ToUtc();
+            if(timestamp.Unit.MILLIS is not null)
+                return value.ToUnixMilliseconds();
+            if(timestamp.Unit.MICROS is not null)
+                return value.ToUnixMicroseconds();
+            if(timestamp.Unit.NANOS is not null)
+                return value.ToUnixNanoseconds();
+            throw new ParquetException($"Unexpected TimeUnit: {timestamp.Unit}");
+        }
+        if(tse.IsTimestampMillis())
+            return value.ToUtc().ToUnixMilliseconds();
+        if(tse.IsTimestampMicros())
+            return value.ToUtc().ToUnixMicroseconds();
+        throw new ArgumentException(
+            $"Unsupported {nameof(DateTime)} encoding for schema element. " +
+            $"Type={tse.Type}, ConvertedType={tse.ConvertedType}, " +
+            $"HasLogicalTimestamp={tse.LogicalType?.TIMESTAMP is not null}",
+            nameof(tse));
     }
 
     public static void Encode(ReadOnlySpan<DateTime> data, Stream destination, SchemaElement tse) {
@@ -995,42 +1093,9 @@ static class ParquetPlainEncoder {
                 }
                 break;
             case TType.INT64:
-                if(tse.LogicalType?.TIMESTAMP is not null) {
-                    foreach(DateTime element in data) {
-                        if(tse.LogicalType.TIMESTAMP.Unit.MILLIS is not null) {
-                            long unixTime = element.ToUnixMilliseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else if(tse.LogicalType.TIMESTAMP.Unit.MICROS is not null) {
-                            long unixTime = element.ToUtc().ToUnixMicroseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else if(tse.LogicalType.TIMESTAMP.Unit.NANOS is not null) {
-                            long unixTime = element.ToUtc().ToUnixNanoseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else {
-                            throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
-                        }
-                    }
-                } else if(tse.IsTimestampMillis()) {
-                    foreach(DateTime element in data) {
-                        long unixTime = element.ToUtc().ToUnixMilliseconds();
-                        byte[] raw = BitConverter.GetBytes(unixTime);
-                        destination.Write(raw, 0, raw.Length);
-                    }
-                } else if(tse.IsTimestampMicros()) {
-                    foreach(DateTime element in data) {
-                        long unixTime = element.ToUtc().ToUnixMicroseconds();
-                        byte[] raw = BitConverter.GetBytes(unixTime);
-                        destination.Write(raw, 0, raw.Length);
-                    }
-                } else {
-                    throw new ArgumentException(
-                        $"Unsupported {nameof(DateTime)} encoding for schema element. " +
-                        $"Type={tse.Type}, ConvertedType={tse.ConvertedType}, " +
-                        $"HasLogicalTimestamp={tse.LogicalType?.TIMESTAMP is not null}",
-                        nameof(tse));
+                foreach(DateTime element in data) {
+                    byte[] raw = BitConverter.GetBytes(ToInt64Timestamp(element, tse));
+                    destination.Write(raw, 0, raw.Length);
                 }
                 break;
             case TType.INT96:
@@ -1063,7 +1128,7 @@ static class ParquetPlainEncoder {
                 break;
             case TType.INT64:
                 foreach(TimeOnly element in data) {
-                    long ticks = element.Ticks / 10;
+                    long ticks = TicksToInt64Time(element.Ticks, tse);
                     byte[] raw = BitConverter.GetBytes(ticks);
                     destination.Write(raw, 0, raw.Length);
                 }
@@ -1071,14 +1136,19 @@ static class ParquetPlainEncoder {
         }
     }
 
-    public static int Decode(Span<byte> source, Span<DateTime> data, SchemaElement tse) {
+    public static int Decode(Span<byte> source, Span<DateTime> data, SchemaElement tse, ParquetOptions? options = null) {
+        DateTimeOutOfRangeHandling outOfRange = options?.DateTimeOutOfRangeHandling ?? DateTimeOutOfRangeHandling.Throw;
+
         switch(tse.Type) {
             case TType.INT32:
                 int[] ints = ArrayPool<int>.Shared.Rent(data.Length);
                 try {
                     int intsRead = Decode(source, ints.AsSpan(0, data.Length));
-                    for(int i = 0; i < intsRead; i++)
-                        data[i] = ints[i].AsUnixDaysInDateTime();
+                    for(int i = 0; i < intsRead; i++) {
+                        if(!OtherExtensions.TryUnixToDateTime(ints[i], TimeSpan.TicksPerDay, DateTimeKind.Utc, outOfRange, out data[i]))
+                            throw OtherExtensions.OutOfRangeException(
+                                $"DATE value {ints[i]} (days since 1970-01-01)", tse.Name, typeof(DateTime));
+                    }
                     return intsRead;
                 } finally {
                     ArrayPool<int>.Shared.Return(ints);
@@ -1087,69 +1157,73 @@ static class ParquetPlainEncoder {
                 long[] longs = ArrayPool<long>.Shared.Rent(data.Length);
                 try {
                     int longsRead = Decode(source, longs.AsSpan(0, data.Length));
+
+                    // unit and kind are the same for the whole column
+                    TimeUnit? unit = tse.LogicalType?.TIMESTAMP?.Unit;
+                    bool isNanos = unit?.NANOS is not null;
+                    long ticksPerUnit;
+                    string unitName;
                     if(tse.LogicalType?.TIMESTAMP is not null) {
-                        for(int i = 0; i < longsRead; i++) {
-                            if(tse.LogicalType.TIMESTAMP.Unit.MILLIS is not null) {
-                                DateTime dt = longs[i].AsUnixMillisecondsInDateTime();
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else if(tse.LogicalType.TIMESTAMP.Unit.MICROS is not null) {
-                                long lv = longs[i];
-                                long microseconds = lv % 1000;
-                                lv /= 1000;
-                                DateTime dt = lv.AsUnixMillisecondsInDateTime().AddTicks(microseconds * 10);
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else if(tse.LogicalType.TIMESTAMP.Unit.NANOS is not null) {
-                                long lv = longs[i];
-                                long nanoseconds = lv % 1000000;
-                                lv /= 1000000;
-                                DateTime dt = lv.AsUnixMillisecondsInDateTime().AddTicks(nanoseconds / 100); // 1 tick = 100 nanoseconds
-                                dt = DateTime.SpecifyKind(dt, tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local);
-                                data[i] = dt;
-                            } else {
-                                throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
-                            }
+                        if(unit!.MILLIS is not null) {
+                            ticksPerUnit = TimeSpan.TicksPerMillisecond;
+                            unitName = "milliseconds";
+                        } else if(unit.MICROS is not null) {
+                            ticksPerUnit = TimeSpan.TicksPerMicrosecond;
+                            unitName = "microseconds";
+                        } else if(isNanos) {
+                            ticksPerUnit = 0;   // not used, nanos are divided instead
+                            unitName = "nanoseconds";
+                        } else {
+                            throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
                         }
                     } else if(tse.IsTimestampMicros()) {
-                        for(int i = 0; i < longsRead; i++) {
-                            long lv = longs[i];
-                            long microseconds = lv % 1000;
-                            lv /= 1000;
-                            data[i] = lv.AsUnixMillisecondsInDateTime().AddTicks(microseconds * 10);
-                        }
+                        ticksPerUnit = TimeSpan.TicksPerMicrosecond;
+                        unitName = "microseconds";
                     } else {
-                        for(int i = 0; i < longsRead; i++)
-                            data[i] = longs[i].AsUnixMillisecondsInDateTime();
+                        ticksPerUnit = TimeSpan.TicksPerMillisecond;
+                        unitName = "milliseconds";
+                    }
+
+                    DateTimeKind kind = tse.LogicalType?.TIMESTAMP is not null
+                        ? (tse.LogicalType.TIMESTAMP.IsAdjustedToUTC ? DateTimeKind.Utc : DateTimeKind.Local)
+                        : DateTimeKind.Utc;
+
+                    for(int i = 0; i < longsRead; i++) {
+                        bool ok = isNanos
+                            ? OtherExtensions.TryUnixNanosToDateTime(longs[i], kind, outOfRange, out data[i])
+                            : OtherExtensions.TryUnixToDateTime(longs[i], ticksPerUnit, kind, outOfRange, out data[i]);
+                        if(!ok)
+                            throw OtherExtensions.OutOfRangeException(
+                                $"TIMESTAMP value {longs[i]} ({unitName} since 1970-01-01)", tse.Name, typeof(DateTime));
                     }
                     return longsRead;
                 } finally {
                     ArrayPool<long>.Shared.Return(longs);
                 }
-            case TType.INT96:
-                byte[] buf = ArrayPool<byte>.Shared.Rent(NanoTime.BinarySize * data.Length);
-                try {
+            case TType.INT96: {
                     int offset = 0;
                     int els = 0;
-                    while(offset + NanoTime.BinarySize <= source.Length) {
-                        data[els++] = new NanoTime(source.Slice(offset, NanoTime.BinarySize)).ToDateTime();
+                    while(offset + NanoTime.BinarySize <= source.Length && els < data.Length) {
+                        data[els++] = new NanoTime(source.Slice(offset, NanoTime.BinarySize)).ToDateTime(outOfRange, tse.Name);
                         offset += NanoTime.BinarySize;
                     }
                     return els;
-                } finally {
-                    ArrayPool<byte>.Shared.Return(buf);
                 }
             default:
                 throw new NotSupportedException();
         }
     }
 
-    public static int Decode(Span<byte> source, Span<DateOnly> data, SchemaElement tse) {
+    public static int Decode(Span<byte> source, Span<DateOnly> data, SchemaElement tse, ParquetOptions? options = null) {
+        DateTimeOutOfRangeHandling outOfRange = options?.DateTimeOutOfRangeHandling ?? DateTimeOutOfRangeHandling.Throw;
         int[] ints = ArrayPool<int>.Shared.Rent(data.Length);
         try {
             int intsRead = Decode(source, ints.AsSpan(0, data.Length));
-            for(int i = 0; i < intsRead; i++)
-                data[i] = DateOnly.FromDateTime(ints[i].AsUnixDaysInDateTime());
+            for(int i = 0; i < intsRead; i++) {
+                if(!OtherExtensions.TryUnixDaysToDateOnly(ints[i], outOfRange, out data[i]))
+                    throw OtherExtensions.OutOfRangeException(
+                        $"DATE value {ints[i]} (days since 1970-01-01)", tse.Name, typeof(DateOnly));
+            }
             return intsRead;
         } finally {
             ArrayPool<int>.Shared.Return(ints);
@@ -1174,7 +1248,7 @@ static class ParquetPlainEncoder {
                     while(srcPos + sizeof(long) <= source.Length && i < data.Length) {
                         long lv = source.ReadInt64(srcPos);
                         srcPos += sizeof(long);
-                        data[i++] = new TimeOnly(lv * 10);
+                        data[i++] = new TimeOnly(Int64TimeToTicks(lv, tse));
                     }
                     return i;
                 }
@@ -1194,7 +1268,7 @@ static class ParquetPlainEncoder {
                 break;
             case TType.INT64:
                 foreach(TimeSpan ts in data) {
-                    long micros = ts.Ticks / 10;
+                    long micros = TicksToInt64Time(ts.Ticks, tse);
                     byte[] raw = BitConverter.GetBytes(micros);
                     destination.Write(raw, 0, raw.Length);
                 }
@@ -1222,7 +1296,7 @@ static class ParquetPlainEncoder {
                     while(srcPos + sizeof(long) <= source.Length && i < data.Length) {
                         long lv = source.ReadInt64(srcPos);
                         srcPos += sizeof(long);
-                        data[i++] = new TimeSpan(lv * 10);
+                        data[i++] = new TimeSpan(Int64TimeToTicks(lv, tse));
                     }
                     return i;
                 }
@@ -1312,18 +1386,14 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                data[i] = E.GetString(source.Slice(spanIdx, length));
-                spanIdx += length;
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                data[i] = E.GetString(SliceValue(source, ref spanIdx, length, tse, i, data.Length));
             }
 
         } else {
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                int length = source.ReadInt32(spanIdx);
-                spanIdx += sizeof(int);
-                data[i] = E.GetString(source.Slice(spanIdx, length));
-                spanIdx += length;
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                data[i] = E.GetString(ReadLengthPrefixedValue(source, ref spanIdx, tse, i, data.Length));
             }
         }
         return i;
@@ -1344,27 +1414,23 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
 
-                Span<byte> elementSpan = source.Slice(spanIdx, length);
+                Span<byte> elementSpan = SliceValue(source, ref spanIdx, length, tse, i, data.Length);
                 char[] charBuffer = new char[System.Text.Encoding.UTF8.GetCharCount(elementSpan)];
                 decoder.GetChars(elementSpan, charBuffer, flush: true);
                 ReadOnlyMemory<char> charMemory = charBuffer.AsMemory();
                 data[i] = charMemory;
-                spanIdx += length;
             }
 
         } else {
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                int length = source.ReadInt32(spanIdx);
-                spanIdx += sizeof(int);
-                Span<byte> elementSpan = source.Slice(spanIdx, length);
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                Span<byte> elementSpan = ReadLengthPrefixedValue(source, ref spanIdx, tse, i, data.Length);
                 char[] charBuffer = new char[System.Text.Encoding.UTF8.GetCharCount(elementSpan)];
                 decoder.GetChars(elementSpan, charBuffer, flush: true);
                 ReadOnlyMemory<char> charMemory = charBuffer.AsMemory();
                 data[i] = charMemory;
-                spanIdx += length;
             }
         }
         return i;

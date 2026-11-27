@@ -22,7 +22,7 @@ namespace Parquet.Serialization;
 public record DeserializationResult<T>(ParquetSchema Schema, IList<T> Data, IReadOnlyDictionary<string, string> CustomMetadata) where T : class, new();
 
 /// <summary>
-/// High-level object serialisation. Supports everything, including nested types.
+/// High-level object serialization. Supports everything, including nested types.
 /// </summary>
 public static class ParquetSerializer {
 
@@ -53,7 +53,7 @@ public static class ParquetSerializer {
                 ShreddedColumn sc = fs.Stripe(fs.Field, objectInstances);
                 await sc.CallWriteAsync(fs.Field, rg);
             } catch(Exception ex) {
-                throw new ApplicationException($"failed to serialise data column '{fs.Field.Path}'", ex);
+                throw new ApplicationException($"failed to serialize data column '{fs.Field.Path}'", ex);
             }
         }
 
@@ -73,7 +73,7 @@ public static class ParquetSerializer {
                 ShreddedColumn sc = fs.Stripe(fs.Field, data);
                 await sc.CallWriteAsync(fs.Field, rg);
             } catch(Exception ex) {
-                throw new ApplicationException($"failed to serialise data column '{fs.Field.Path}'", ex);
+                throw new ApplicationException($"failed to serialize data column '{fs.Field.Path}'", ex);
             }
         }
 
@@ -197,7 +197,7 @@ public static class ParquetSerializer {
     #region [ Deserialization ]
 
     /// <summary>
-    /// Deserialise
+    /// Deserialize
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="source"></param>
@@ -232,7 +232,7 @@ public static class ParquetSerializer {
     }
 
     /// <summary>
-    /// Deserialise from local file.
+    /// Deserialize from local file.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="filePath">File path</param>
@@ -252,7 +252,7 @@ public static class ParquetSerializer {
     #endregion
 
     /// <summary>
-    /// Deserialise untyped data (collection of dictionaries) from Parquet format read from provided source stream.
+    /// Deserialize untyped data (collection of dictionaries) from Parquet format read from provided source stream.
     /// Schema is returned as well, as it can't be inferred from data.
     /// </summary>
     public static async Task<DeserializationResult<Dictionary<string, object>>> DeserializeUntypedAsync(Stream source,
@@ -277,10 +277,10 @@ public static class ParquetSerializer {
         return new DeserializationResult<Dictionary<string, object>>(schema, result, reader.CustomMetadata);
     }
 
-    internal class LazyDeserialisationResult {
+    internal class LazyDeserializationResult {
         private ParquetSchema? _schema;
 
-        public LazyDeserialisationResult(IList<Dictionary<string, object>> data) {
+        public LazyDeserializationResult(IList<Dictionary<string, object>> data) {
             Data = data;
         }
 
@@ -309,7 +309,7 @@ public static class ParquetSerializer {
     }
 
     internal static async Task DeserializeUntypedAsync(Stream source,
-        LazyDeserialisationResult result,
+        LazyDeserializationResult result,
         ParquetOptions? options = null,
         CancellationToken cancellationToken = default) {
 
@@ -396,6 +396,12 @@ public static class ParquetSerializer {
                 throw new InvalidCastException($"class type ({assemblerField.ClrType}) does not match file's type ({fileField.ClrType}) in field '{assemblerField.Path}'");
         }
 
+        // same CLR type can still carry different time units (e.g. micros and nanos are both long)
+        if(assemblerField is TimeDataField classTime && fileField is TimeDataField fileTime &&
+           classTime.Precision != fileTime.Precision) {
+            throw new InvalidCastException($"class time precision ({classTime.Precision}) does not match file's time precision ({fileTime.Precision}) in field '{assemblerField.Path}'");
+        }
+
 
         // make final result
         DataField r = (DataField)assemblerField.Clone();
@@ -429,7 +435,7 @@ public static class ParquetSerializer {
 
             DataField? readerField = MakeForReading(schema, fasm.Field, options);
 
-            // skips column deserialisation if it doesn't exist in file's schema
+            // skips column deserialization if it doesn't exist in file's schema
             if(readerField == null)
                 continue;
 

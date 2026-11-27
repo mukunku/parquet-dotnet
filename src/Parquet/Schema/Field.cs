@@ -42,7 +42,7 @@ public abstract class Field {
     public int MaxDefinitionLevel { get; protected set; }
 
     /// <summary>
-    /// Used internally for serialisation
+    /// Used internally for serialization
     /// </summary>
     internal string? ClrPropName { get; set; }
 

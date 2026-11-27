@@ -31,6 +31,17 @@ class ThriftCompactProtocolReader {
         return (long)(n >> 1) ^ -(long)(n & 1);
     }
 
+    /// <summary>
+    /// Reads one byte, throwing at the end of the stream. Stream.ReadByte returns -1 there, which as a byte is 0xFF:
+    /// a variable-length-int continuation byte forever, so truncated metadata used to make varint reads loop endlessly.
+    /// </summary>
+    private byte ReadRawByte() {
+        int b = _inputStream.ReadByte();
+        if(b < 0)
+            throw new ThriftProtocolException("Unexpected end of Thrift data. File is most likely truncated or corrupt.");
+        return (byte)b;
+    }
+
     private uint ReadVarInt32() {
         /*
         Read an i32 from the wire as a varint. The MSB of each byte is set
@@ -41,7 +52,7 @@ class ThriftCompactProtocolReader {
         int shift = 0;
 
         while(true) {
-            byte b = (byte)_inputStream.ReadByte();
+            byte b = ReadRawByte();
             result |= (uint)(b & 0x7f) << shift;
             if((b & 0x80) != 0x80) {
                 break;
@@ -61,7 +72,7 @@ class ThriftCompactProtocolReader {
         int shift = 0;
         ulong result = 0;
         while(true) {
-            byte b = (byte)_inputStream.ReadByte();
+            byte b = ReadRawByte();
             result |= (ulong)(b & 0x7f) << shift;
             if((b & 0x80) != 0x80) {
                 break;
@@ -73,12 +84,12 @@ class ThriftCompactProtocolReader {
     }
 
     public bool ReadBool() {
-        byte b = (byte)_inputStream.ReadByte();
+        byte b = ReadRawByte();
         return (CompactType)b == CompactType.BooleanTrue;
     }
 
     public sbyte ReadByte() {
-        return (sbyte)_inputStream.ReadByte();
+        return (sbyte)ReadRawByte();
     }
 
     public short ReadI16() {
@@ -128,7 +139,7 @@ class ThriftCompactProtocolReader {
     public bool ReadNextField(out short fieldId, out CompactType compactType) {
 
         // Read a field header off the wire.
-        byte header = (byte)_inputStream.ReadByte();
+        byte header = ReadRawByte();
 
         // if it's a stop, then we can return immediately, as the struct is over.
         if((CompactType)header == CompactType.Stop) {
@@ -160,7 +171,7 @@ class ThriftCompactProtocolReader {
         true size.
         */
 
-        byte sizeAndType = (byte)_inputStream.ReadByte();
+        byte sizeAndType = ReadRawByte();
         int size = (sizeAndType >> 4) & 0x0f;
         if(size == 15) {
             size = (int)ReadVarInt32();
@@ -169,13 +180,17 @@ class ThriftCompactProtocolReader {
         return size;
     }
 
+    /// <summary>
+    /// Skips the value of a field that is not known to the reader, e.g. one added by a newer version of the format.
+    /// </summary>
     public void SkipField(CompactType compactType) {
         switch(compactType) {
             case CompactType.BooleanTrue:
             case CompactType.BooleanFalse:
+                // a bool field's value is its type in the field header, there is nothing more to skip
                 break;
             case CompactType.Byte:
-                _inputStream.Seek(1, SeekOrigin.Current);
+                ReadRawByte();
                 break;
             case CompactType.I16:
                 ReadI16();
@@ -193,24 +208,51 @@ class ThriftCompactProtocolReader {
                 // Don't try to decode the string, just skip it.
                 ReadBinary();
                 break;
-            //case TType.Uuid:
-            //    await protocol.ReadUuidAsync(cancellationToken);
-            //    break;
+            case CompactType.Uuid:
+                _inputStream.ReadBytesExactly(16);
+                break;
             case CompactType.Struct:
                 StructBegin();
-                while(ReadNextField(out _, out _)) {
-
+                while(ReadNextField(out _, out CompactType fieldType)) {
+                    SkipField(fieldType);
                 }
                 StructEnd();
                 break;
             case CompactType.List:
-                int elementCount = ReadListHeader(out CompactType elementType);
-                for(int i = 0; i < elementCount; i++) {
-                    SkipField(elementType);
+            case CompactType.Set: {   // a set is encoded exactly like a list
+                    int elementCount = ReadListHeader(out CompactType elementType);
+                    for(int i = 0; i < elementCount; i++) {
+                        SkipElement(elementType);
+                    }
+                }
+                break;
+            case CompactType.Map: {
+                    // size as varint, then (when not empty) one byte with the key type and value type, then the pairs
+                    int pairCount = (int)ReadVarInt32();
+                    if(pairCount > 0) {
+                        byte types = ReadRawByte();
+                        var keyType = (CompactType)(byte)(types >> 4);
+                        var valueType = (CompactType)(byte)(types & 0x0f);
+                        for(int i = 0; i < pairCount; i++) {
+                            SkipElement(keyType);
+                            SkipElement(valueType);
+                        }
+                    }
                 }
                 break;
             default:
                 throw new ThriftProtocolException($"Invalid data in Thrift header. File is most likely corrupt (unexpected data type {compactType}).");
         }
+    }
+
+    /// <summary>
+    /// Skips one element of a list, set or map. Elements are encoded like field values, except bools: a bool element
+    /// takes a byte of its own, as there is no field header to carry its value.
+    /// </summary>
+    private void SkipElement(CompactType elementType) {
+        if((elementType == CompactType.BooleanTrue) || (elementType == CompactType.BooleanFalse))
+            ReadRawByte();
+        else
+            SkipField(elementType);
     }
 }

@@ -118,7 +118,25 @@ public sealed class ListField : Field {
         return new ListField(name) { IsNullable = isNullable };
     }
 
+    /// <summary>
+    /// True when the item is a struct that stands for this list's own repeated group (implicit list with several
+    /// fields). Fields assigned to the list then belong to that struct.
+    /// </summary>
+    private bool _itemIsImplicitGroup;
+
+    internal void AssignImplicitGroupItem(StructField item) {
+        Assign(item);
+        _itemIsImplicitGroup = true;
+    }
+
     internal override void Assign(Field field) {
+        if(_itemIsImplicitGroup) {
+            // the struct is this list's own group, so it shares the list's (by now final) path
+            Item.Path = Path;
+            Item.Assign(field);
+            return;
+        }
+
         if(_itemAssigned)
             throw new InvalidOperationException($"item was already assigned to this list ({Name}), somethin is terribly wrong because a list can only have one item.");
 

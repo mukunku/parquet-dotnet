@@ -3,7 +3,7 @@
     <PropertyGroup>
         <TargetFrameworks>net10.0;net8.0</TargetFrameworks>
         <Company></Company>
-        <PackageId>Parquet.Net.Data.Analysis</PackageId>
+        <PackageId>Parquet.Net.Data.Analysis.mukunku</PackageId>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -23,21 +23,21 @@
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-        <Authors>Ivan Gavryliuk (@aloneguid)</Authors>
+        <Authors>Ivan Gavryliuk (@aloneguid), mukunku</Authors>
         <Product />
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/mukunku/parquet-dotnet</PackageProjectUrl>
         <RepositoryUrl>https://github.com/mukunku/parquet-dotnet</RepositoryUrl>
         <RepositoryType>GitHub</RepositoryType>
         <PackageIcon>icon.png</PackageIcon>
-        <Description>Fully managed Apache Parquet implementation.</Description>
+        <Description>Microsoft.Data.Analysis DataFrame support for Parquet.Net.mukunku: read Parquet files into a DataFrame and write a DataFrame to Parquet.</Description>
         <PackageReadmeFile>README.md</PackageReadmeFile>
 
     </PropertyGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Parquet\Parquet.csproj" />
-        <PackageReference Include="Microsoft.Data.Analysis" Version="0.23.0" />
+        <PackageReference Include="Microsoft.Data.Analysis" />
     </ItemGroup>
 
     <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -48,7 +48,7 @@
     </PropertyGroup>
 
     <ItemGroup Condition="'$(Configuration)' == 'Release'">
-        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
     </ItemGroup>
 
     <ItemGroup>

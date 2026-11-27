@@ -1,15 +1,10 @@
-﻿import sys
-import pyarrow as pa
+﻿import json
+import sys
+
 import pyarrow.parquet as pq
-import pandas as pd
 
+# Reads a parquet file with pyarrow and prints its rows as JSON. Only pyarrow is needed: values JSON can't represent
+# natively (dates, decimals, bytes...) are printed with str(), and maps come out as lists of (key, value) pairs.
 if __name__ == "__main__":
-
-    tbl: pa.Table = pq.read_table(sys.argv[1])
-
-    # tbl has .to_pydict() method, but it fails on complex datatypes
-    # convert Arrow table to Pandas DataFrame, which can handle JSON conversion
-    df: pd.DataFrame = tbl.to_pandas()
-
-    j: str = df.to_json()
-    print(j)
+    rows = pq.read_table(sys.argv[1]).to_pylist()
+    print(json.dumps(rows, default=str))

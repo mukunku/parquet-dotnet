@@ -1,11 +1,17 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Parquet.Data;
+using Parquet.Encodings;
 using Parquet.Schema;
 using Parquet.Serialization;
+using Parquet.Serialization.Attributes;
 using Xunit;
 
 namespace Parquet.Test;
@@ -165,6 +171,23 @@ public class ParquetReaderOnTestFilesTest : TestBase {
             data);
     }
 
+    /// <summary>
+    /// BYTE_ARRAY DECIMAL(5,2) column with values 1.23, empty byte array, null, -1.23. Written by pyarrow 23.0.1 as a
+    /// binary column, then only the footer was rewritten to add the DECIMAL annotation. pyarrow rejects the empty
+    /// value too ("Length of byte array passed to Decimal128::FromBigEndian was 0"). The empty value used to be skipped
+    /// without being counted, shifting -1.23 into the wrong row and then reading past the end of the page.
+    /// </summary>
+    [Fact]
+    public async Task ByteArrayDecimal_EmptyValue_Throws() {
+        using Stream s = OpenTestFile("special/byte_array_decimal_empty_value.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => ReadNullableValuesAsync<decimal>(rgr, r.Schema.DataFields[0]));
+        Assert.Equal("column 'd': value 2 is an empty byte array, which is not a valid DECIMAL, file is corrupt", ex.Message);
+    }
+
     [Fact]
     public async Task Read_delta_binary_packed() {
         using Stream s = OpenTestFile("delta_binary_packed.parquet");
@@ -321,10 +344,139 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         Assert.Equal(new int?[] { 2023, 2024 }, data);
     }
 
+    /// <summary>
+    /// TIME(NANOS) columns used to be plain-decoded as if they were microseconds, which either produced wrong values
+    /// or threw "Ticks must be between 0 and TimeOnly.MaxValue.Ticks". File written by pyarrow (time64 us and ns,
+    /// plain encoding, last value null).
+    /// </summary>
+    [Theory]
+    [InlineData("time_us")]
+    [InlineData("time_ns")]
+    public async Task Time_Int64_AllUnits_PlainDecode_FromPyArrow(string columnName) {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DataField field = r.Schema.DataFields.First(f => f.Name == columnName);
+        Assert.NotNull(field.SchemaElement);
+
+        // raw values as stored in the file
+        long?[] raw = await ReadNullableValuesAsync<long>(rgr, field);
+        Assert.Null(raw[4]);
+        byte[] source = MemoryMarshal.AsBytes(raw.Take(4).Select(v => v!.Value).ToArray().AsSpan()).ToArray();
+
+        TimeOnly[] expected = [
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999)
+        ];
+
+        var timeOnly = new TimeOnly[4];
+        Assert.Equal(4, ParquetPlainEncoder.Decode(source.AsSpan(), timeOnly.AsSpan(), field.SchemaElement));
+        Assert.Equal(expected, timeOnly);
+
+        var timeSpan = new TimeSpan[4];
+        Assert.Equal(4, ParquetPlainEncoder.Decode(source.AsSpan(), timeSpan.AsSpan(), field.SchemaElement));
+        Assert.Equal(expected.Select(t => t.ToTimeSpan()), timeSpan);
+
+        // and the encoder must write back exactly what pyarrow wrote
+        using var ms = new MemoryStream();
+        ParquetPlainEncoder.Encode(timeOnly, ms, field.SchemaElement);
+        Assert.Equal(source, ms.ToArray());
+        ms.SetLength(0);
+        ParquetPlainEncoder.Encode(timeSpan, ms, field.SchemaElement);
+        Assert.Equal(source, ms.ToArray());
+    }
+
+    class TimeMillisRecord {
+        [ParquetTime(Precision = TimeUnitPrecision.Millis)]
+        public TimeOnly? time_ms { get; set; }
+    }
+
+    /// <summary>
+    /// Deserializing a TIME(MILLIS) column into <see cref="TimeOnly"/> used to fail with "No coercion operator is
+    /// defined between types 'System.Int32' and 'System.Nullable`1[System.TimeOnly]'".
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Millis_Deserialize_FromPyArrow() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        IList<TimeMillisRecord> data = (await ParquetSerializer.DeserializeAsync<TimeMillisRecord>(s)).Data;
+
+        Assert.Equal(new TimeOnly?[] {
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999),
+            null
+        }, data.Select(d => d.time_ms));
+    }
+
+    class TimeMicrosRecord {
+        public TimeOnly? time_us { get; set; }
+    }
+
+    /// <summary>
+    /// Deserializing TIME(MICROS) into <see cref="TimeOnly"/> used to treat the stored value as .NET ticks,
+    /// producing values 10x too small.
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Micros_Deserialize_FromPyArrow() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        IList<TimeMicrosRecord> data = (await ParquetSerializer.DeserializeAsync<TimeMicrosRecord>(s)).Data;
+
+        Assert.Equal(new TimeOnly?[] {
+            new TimeOnly(0, 0, 0),
+            new TimeOnly(0, 1, 0),
+            new TimeOnly(10, 30, 0),
+            new TimeOnly(23, 59, 59, 999),
+            null
+        }, data.Select(d => d.time_us));
+    }
+
+    class TimeNanosIntoTimeOnlyRecord {
+        public TimeOnly? time_ns { get; set; }
+    }
+
+    /// <summary>
+    /// TIME(NANOS) and TimeOnly (micros) are both INT64, so a type check alone let the data be misread.
+    /// </summary>
+    [Fact]
+    public async Task TimeOnly_Nanos_Deserialize_PrecisionMismatchThrows() {
+        using Stream s = OpenTestFile("issues/time_units_pyarrow.parquet");
+        InvalidCastException ex = await Assert.ThrowsAsync<InvalidCastException>(
+            () => ParquetSerializer.DeserializeAsync<TimeNanosIntoTimeOnlyRecord>(s));
+        Assert.Contains("precision", ex.Message);
+        Assert.Contains("time_ns", ex.Message);
+    }
+
     [Fact]
     public async Task HyparquetCompressed() {
         using Stream s = OpenTestFile("hyparquet.snappy.parquet");
         DeserializationResult<Dictionary<string, object>> result = await ParquetSerializer.DeserializeUntypedAsync(s);
+    }
+
+    /// <summary>
+    /// RLE encoded booleans, which pyarrow writes by default in data page V2. They use bit width 1 and, in data pages,
+    /// a 4 byte length prefix. The reader used bit width 0 without the prefix, so every value came back false (in v5 it
+    /// threw DivideByZeroException instead, issue #638). Written by pyarrow 23.0.1: 500 x true, then
+    /// [true, false, null, true] x 300, then 100 x false, i.e. both RLE runs and bit-packed groups.
+    /// </summary>
+    [Theory]
+    [InlineData("issues/638_bool_rle_v1.parquet")]
+    [InlineData("issues/638_bool_rle_v2.parquet")]
+    public async Task BooleanRle_638(string fileName) {
+        using Stream s = OpenTestFile(fileName);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        bool?[] actual = await ReadNullableValuesAsync<bool>(rgr, r.Schema.DataFields[0]);
+
+        bool?[] expected = [
+            .. Enumerable.Repeat<bool?>(true, 500),
+            .. Enumerable.Range(0, 1200).Select(i => (i % 4) switch { 1 => (bool?)false, 2 => null, _ => true }),
+            .. Enumerable.Repeat<bool?>(false, 100)];
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
@@ -338,6 +490,83 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         string?[] values = await ReadStringValuesAsync(rgr, df);
 
         Assert.Single(values);
+    }
+
+    /// <summary>
+    /// MAP without a value field: "optional group tags (MAP) { repeated group key_value { required binary key (String); } }".
+    /// Written by pyarrow 23.0.1 as map&lt;string, int32&gt; with rows {a:1, b:2}, {}, null, {c:3}; then only the footer was
+    /// rewritten to drop the value field and its column. pyarrow reads it as list&lt;key&gt;: [a, b], [], null, [c].
+    /// Used to fail with "dictionary container must have exactly 2 children but 1 found".
+    /// </summary>
+    [Fact]
+    public async Task Map_WithoutValue_ReadAsListOfKeys() {
+        using Stream s = OpenTestFile("special/map_without_value.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ListField tags = Assert.IsType<ListField>(r.Schema.Fields[1]);
+        DataField key = Assert.IsType<DataField>(tags.Item);
+        Assert.Equal("tags/key_value/key", key.Path.ToString());
+
+        using RawColumnData<ReadOnlyMemory<char>> keys = await rgr.ReadRawColumnDataAsync<ReadOnlyMemory<char>>(key);
+        // Values is sized for every entry, only the defined ones (DL == max) are filled
+        Assert.Equal(new[] { "a", "b", "c" }, keys.Values[..3].ToArray().Select(v => v.ToString()));
+        Assert.Equal(new[] { 2, 2, 1, 0, 2 }, keys.DefinitionLevels.ToArray());   // a, b | empty | null | c
+        Assert.Equal(new[] { 0, 1, 0, 0, 0 }, keys.RepetitionLevels.ToArray());
+    }
+
+    /// <summary>
+    /// Implicit lists (repeated groups with no LIST annotation) with several fields, top level and inside a struct:
+    ///   required int32 id;
+    ///   repeated group addresses { required binary street (String); optional int32 zip; }
+    ///   required group person { optional binary name (String); repeated group phones { required binary kind (String); optional binary number (String); } }
+    /// Written by pyarrow 23.0.1 as required lists of required structs, then only the footer schema was rewritten to the
+    /// implicit form (leaf columns have identical levels). pyarrow reads the result as list&lt;struct&gt;.
+    /// Used to fail with "Implicit list with multiple children is currently not supported".
+    /// </summary>
+    [Fact]
+    public async Task ImplicitList_MultipleChildren() {
+        using Stream s = OpenTestFile("special/implicit_list_multiple_children.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        // schema: lists of structs, paths as written in the file
+        ListField addresses = Assert.IsType<ListField>(r.Schema.Fields[1]);
+        Assert.IsType<StructField>(addresses.Item);
+        StructField person = Assert.IsType<StructField>(r.Schema.Fields[2]);
+        ListField phones = Assert.IsType<ListField>(person.Fields[1]);
+        Assert.IsType<StructField>(phones.Item);
+        Assert.Equal(
+            new[] { "id(0,0)", "addresses/street(1,1)", "addresses/zip(1,2)", "person/name(0,1)",
+                "person/phones/kind(1,1)", "person/phones/number(1,2)" },
+            r.Schema.DataFields.Select(f => $"{f.Path}({f.MaxRepetitionLevel},{f.MaxDefinitionLevel})"));
+
+        // low level: values and levels, as e.g. a viewer reads them
+        using(RawColumnData<int> zip = await rgr.ReadRawColumnDataAsync<int>(r.Schema.FindDataField(new FieldPath("addresses", "zip")))) {
+            // Values is sized for every entry, only the defined ones (DL == max) are filled
+            Assert.Equal(new[] { 10001, 20002, 30003, 40004 }, zip.Values[..4].ToArray());
+            Assert.Equal(new[] { 2, 1, 0, 2, 2, 2, 1 }, zip.DefinitionLevels.ToArray());
+            Assert.Equal(new[] { 0, 1, 0, 0, 0, 1, 1 }, zip.RepetitionLevels.ToArray());
+        }
+        using(RawColumnData<ReadOnlyMemory<char>> kind = await rgr.ReadRawColumnDataAsync<ReadOnlyMemory<char>>(
+            r.Schema.FindDataField(new FieldPath("person", "phones", "kind")))) {
+            Assert.Equal(new[] { "home", "work", "cell" }, kind.Values[..3].ToArray().Select(v => v.ToString()));
+            Assert.Equal(new[] { 1, 1, 0, 1, 0 }, kind.DefinitionLevels.ToArray());
+            Assert.Equal(new[] { 0, 1, 0, 0, 0 }, kind.RepetitionLevels.ToArray());
+        }
+
+        // untyped deserialization assembles the same rows pyarrow does
+        s.Position = 0;
+        IList<Dictionary<string, object>> rows = (await ParquetSerializer.DeserializeUntypedAsync(s)).Data!;
+        Assert.Equal(4, rows.Count);
+        var row1Addresses = Assert.IsAssignableFrom<IList>(rows[0]["addresses"]);
+        Assert.Equal(2, row1Addresses.Count);
+        Assert.Equal("2 Side Rd", ((IDictionary<string, object?>)row1Addresses[1]!)["street"]);
+        Assert.Empty(Assert.IsAssignableFrom<IList>(rows[1]["addresses"]));
+        Assert.Equal(3, Assert.IsAssignableFrom<IList>(rows[3]["addresses"]).Count);
+        var row1Phones = Assert.IsAssignableFrom<IList>(((IDictionary<string, object?>)rows[0]["person"]!)["phones"]);
+        Assert.Equal("work", ((IDictionary<string, object?>)row1Phones[1]!)["kind"]);
+        Assert.Empty(Assert.IsAssignableFrom<IList>(((IDictionary<string, object?>)rows[3]["person"]!)["phones"]));
     }
 
     [Fact]
@@ -365,6 +594,139 @@ public class ParquetReaderOnTestFilesTest : TestBase {
         foreach(DataField field in r.Schema.GetDataFields()) {
             await ReadAnyFieldAsync(rgr, field);
         }
+    }
+
+    // Dictionary-encoded INT96 column written by pyarrow 23.0.1, then two dictionary entries were patched in place:
+    // one to julian day 5373485 (10000-01-01, after DateTime.MaxValue) and one to julian day 0 (4714 BC).
+    private const string Int96OutOfRangeFile = "special/int96_out_of_range_dictionary.parquet";
+    private static readonly DateTime Int96OkValue = new(2024, 5, 17, 8, 30, 15);
+
+    [Fact]
+    public async Task Int96_OutOfRange_ThrowsByDefault() {
+        using Stream s = OpenTestFile(Int96OutOfRangeFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields[0]));
+        Assert.Contains("'ts'", ex.Message);
+        Assert.Contains("julian day 5373485", ex.Message);
+        Assert.Contains(nameof(DateTimeOutOfRangeHandling.Clamp), ex.Message);
+    }
+
+    [Fact]
+    public async Task Int96_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(Int96OutOfRangeFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] values = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields[0]);
+        Assert.Equal(new DateTime?[] {
+            Int96OkValue, DateTime.MaxValue, Int96OkValue, DateTime.MinValue, null, Int96OkValue
+        }, values);
+    }
+
+    // Written by DuckDB v1.5.6 (plain encoding). Columns: id, d (DATE), ts (TIMESTAMP micros, not UTC adjusted).
+    // Rows: 2024-05-17 [08:30], 12345-01-01, infinity, -infinity, 0000-06-15.
+    // DuckDB stores infinity / -infinity as int32 (date) or int64 (timestamp) max / -max.
+    private const string DuckDbOutOfRangeDatesFile = "special/duckdb_out_of_range_dates.parquet";
+
+    [Theory]
+    [InlineData("d", false, "DATE value 3789391")]
+    [InlineData("d", true, "DATE value 3789391")]
+    [InlineData("ts", false, "TIMESTAMP value 327403382400000000")]
+    public async Task DateAndTimestamp_OutOfRange_ThrowsByDefault(string column, bool useDateOnly, string expectedValue) {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            UseDateOnlyTypeForDates = useDateOnly
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField field = r.Schema.DataFields.First(f => f.Name == column);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(() => field.ClrType == typeof(DateOnly)
+            ? ReadNullableValuesAsync<DateOnly>(rgr, field)
+            : ReadNullableValuesAsync<DateTime>(rgr, field));
+        Assert.Contains($"'{column}'", ex.Message);
+        Assert.Contains(expectedValue, ex.Message);
+        Assert.Contains(nameof(DateTimeOutOfRangeHandling.Clamp), ex.Message);
+    }
+
+    [Fact]
+    public async Task DateAndTimestamp_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] dates = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields.First(f => f.Name == "d"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17), DateTime.MaxValue, DateTime.MaxValue, DateTime.MinValue, DateTime.MinValue
+        }, dates);
+
+        DateTime?[] timestamps = await ReadNullableValuesAsync<DateTime>(rgr, r.Schema.DataFields.First(f => f.Name == "ts"));
+        Assert.Equal(new DateTime?[] {
+            new DateTime(2024, 5, 17, 8, 30, 0), DateTime.MaxValue, DateTime.MaxValue, DateTime.MinValue, DateTime.MinValue
+        }, timestamps);
+        // kind is unchanged by clamping: this column is not UTC adjusted
+        Assert.All(timestamps, t => Assert.Equal(DateTimeKind.Local, t!.Value.Kind));
+    }
+
+    [Fact]
+    public async Task DateOnly_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile(DuckDbOutOfRangeDatesFile);
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            UseDateOnlyTypeForDates = true,
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateOnly?[] dates = await ReadNullableValuesAsync<DateOnly>(rgr, r.Schema.DataFields.First(f => f.Name == "d"));
+        Assert.Equal(new DateOnly?[] {
+            new DateOnly(2024, 5, 17), DateOnly.MaxValue, DateOnly.MaxValue, DateOnly.MinValue, DateOnly.MinValue
+        }, dates);
+    }
+
+    /// <summary>
+    /// A DELTA_BINARY_PACKED DATE column (pyarrow 23.0.1, <c>column_encoding="DELTA_BINARY_PACKED"</c>) holding
+    /// 2024-05-17, day 2000000000 (out of range) and null. Delta pages of dates and timestamps ignored
+    /// <see cref="ParquetOptions.DateTimeOutOfRangeHandling"/> and always threw.
+    /// </summary>
+    [Fact]
+    public async Task DeltaBinaryPackedDate_OutOfRange_Clamp() {
+        using Stream s = OpenTestFile("special/delta_out_of_range_date_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions {
+            DateTimeOutOfRangeHandling = DateTimeOutOfRangeHandling.Clamp
+        });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DateTime?[] dates = await ReadNullableValuesAsync<DateTime>(rgr, Assert.Single(r.Schema.GetDataFields()));
+        Assert.Equal(new DateTime?[] { new DateTime(2024, 5, 17), DateTime.MaxValue, null }, dates);
+    }
+
+    /// <summary>
+    /// INT96 timestamps written by pyarrow 23.0.1 (<c>use_deprecated_int96_timestamps=True</c>, dictionary encoded),
+    /// read as raw integers with <see cref="ParquetOptions.TreatBigIntegersAsDates"/> off. This used to fail with
+    /// "Cannot use type 'System.Numerics.BigInteger'. Only value types without pointers or references are supported".
+    /// An INT96 timestamp is nanoseconds of the day in the low 8 bytes and the julian day in the high 4.
+    /// </summary>
+    [Fact]
+    public async Task Int96_read_as_BigInteger() {
+        const long unixEpochJulianDay = 2_440_588;
+        long day = unixEpochJulianDay + (new DateOnly(2024, 5, 17).DayNumber - new DateOnly(1970, 1, 1).DayNumber);
+        long nanos = ((((8 * 3600) + (30 * 60) + 15) * 1_000_000_000L) + 123_456_000L);
+
+        using Stream s = OpenTestFile("special/int96_pyarrow.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s, new ParquetOptions { TreatBigIntegersAsDates = false });
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        DataField field = Assert.Single(r.Schema.GetDataFields());
+
+        BigInteger?[] values = await ReadNullableValuesAsync<BigInteger>(rgr, field);
+        Assert.Equal(new BigInteger?[] {
+            (new BigInteger(day) << 64) + nanos, null, new BigInteger(unixEpochJulianDay) << 64
+        }, values);
     }
 
     [Fact]

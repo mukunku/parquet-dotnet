@@ -115,31 +115,25 @@
         /// </summary>
         /// <returns>Number of values unpacked</returns>
         public static int Decode8ValuesLE(Span<byte> src, Span<int> dest, int bitWidth) {
+            if((bitWidth < 0) || (bitWidth > 32))
+                throw new ArgumentOutOfRangeException(nameof(bitWidth), bitWidth, "bit width must be 0 to 32");
 
-            // we always need at least bitWidth bytes available to decode 8 values
-            bool needsTempFuffer = src.Length < bitWidth || dest.Length < 8;
-            int decoded = 8;
-
-            Span<byte> src1;
-            Span<int> dest1;
-            if (needsTempFuffer) {
-                src1 = new byte[bitWidth];
-                src.CopyTo(src1);
-                dest1 = new int[8];
-                decoded = Math.Min(src.Length * 8 / bitWidth, dest.Length);
-            } else {
-                src1 = src;
-                dest1 = dest;
+            // 8 values take exactly bitWidth bytes
+            if((src.Length >= bitWidth) && (dest.Length >= 8)) {
+                Unpack8ValuesLE(src, dest, bitWidth);
+                return 8;
             }
 
+            // fewer values fit in src or dest, so unpack via full size buffers and copy only those
+            int decoded = Math.Min(8, dest.Length);
+            if(bitWidth > 0)
+                decoded = Math.Min(decoded, (src.Length * 8) / bitWidth);
+
+            Span<byte> src1 = stackalloc byte[bitWidth];
+            src.Slice(0, Math.Min(src.Length, bitWidth)).CopyTo(src1);
+            Span<int> dest1 = stackalloc int[8];
             Unpack8ValuesLE(src1, dest1, bitWidth);
-
-            if(needsTempFuffer) {
-                for(int i = 0; i < decoded; i++) {
-                    dest[i] = dest1[i];
-                }
-            }
-
+            dest1.Slice(0, decoded).CopyTo(dest);
             return decoded;
         }
 
@@ -601,31 +595,25 @@
         /// </summary>
         /// <returns>Number of values unpacked</returns>
         public static int Decode8ValuesLE(Span<byte> src, Span<long> dest, int bitWidth) {
+            if((bitWidth < 0) || (bitWidth > 64))
+                throw new ArgumentOutOfRangeException(nameof(bitWidth), bitWidth, "bit width must be 0 to 64");
 
-            // we always need at least bitWidth bytes available to decode 8 values
-            bool needsTempFuffer = src.Length < bitWidth || dest.Length < 8;
-            int decoded = 8;
-
-            Span<byte> src1;
-            Span<long> dest1;
-            if (needsTempFuffer) {
-                src1 = new byte[bitWidth];
-                src.CopyTo(src1);
-                dest1 = new long[8];
-                decoded = Math.Min(src.Length * 8 / bitWidth, dest.Length);
-            } else {
-                src1 = src;
-                dest1 = dest;
+            // 8 values take exactly bitWidth bytes
+            if((src.Length >= bitWidth) && (dest.Length >= 8)) {
+                Unpack8ValuesLE(src, dest, bitWidth);
+                return 8;
             }
 
+            // fewer values fit in src or dest, so unpack via full size buffers and copy only those
+            int decoded = Math.Min(8, dest.Length);
+            if(bitWidth > 0)
+                decoded = Math.Min(decoded, (src.Length * 8) / bitWidth);
+
+            Span<byte> src1 = stackalloc byte[bitWidth];
+            src.Slice(0, Math.Min(src.Length, bitWidth)).CopyTo(src1);
+            Span<long> dest1 = stackalloc long[8];
             Unpack8ValuesLE(src1, dest1, bitWidth);
-
-            if(needsTempFuffer) {
-                for(int i = 0; i < decoded; i++) {
-                    dest[i] = dest1[i];
-                }
-            }
-
+            dest1.Slice(0, decoded).CopyTo(dest);
             return decoded;
         }
 

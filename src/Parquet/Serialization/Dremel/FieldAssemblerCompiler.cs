@@ -337,9 +337,14 @@ class FieldAssemblerCompiler<TClass> {
     //    elementType = typeof(ParquetDictionary<,>.ParquetDictionaryElement).MakeGenericType(keyType!, valueType!);
     //}
 
+    /// <summary>
+    /// Levels at which <paramref name="f"/> has a value. For a list of atomics that is the list level: an element
+    /// exists at <c>dlDepth</c>, the list exists (possibly empty) at <c>dlDepth - 1</c>. A nullable element is
+    /// non-null only one level deeper, at the item's own definition level.
+    /// </summary>
     private static void GetReadLevels(Field f, out int dlDepth, out int rlDepth) {
         if(f is ListField lf && lf.Item.IsAtomic) {
-            dlDepth = lf.Item.MaxDefinitionLevel;
+            dlDepth = lf.MaxDefinitionLevel;
             rlDepth = lf.Item.MaxRepetitionLevel;
         } else {
             dlDepth = f.MaxDefinitionLevel;
@@ -351,10 +356,17 @@ class FieldAssemblerCompiler<TClass> {
         switch(f.SchemaType) {
             case SchemaType.Data:
                 var df = (DataField)f;
-                if(df.IsArray) {
-                    return typeof(List<>).MakeGenericType(df.ClrNullableIfHasNullsType);
+                // same preference as for single values, which DataConverter applies when boxing them
+                Type t = df.ClrNullableIfHasNullsType;
+                if(ParquetOptions.PreferUntypedString && (df.ClrType == typeof(ReadOnlyMemory<char>))) {
+                    t = typeof(string);
+                } else if(ParquetOptions.PreferUntypedByteArray && (df.ClrType == typeof(ReadOnlyMemory<byte>))) {
+                    t = typeof(byte[]);
                 }
-                return df.ClrNullableIfHasNullsType;
+                if(df.IsArray) {
+                    return typeof(List<>).MakeGenericType(t);
+                }
+                return t;
             case SchemaType.Map:
                 var fmap = (MapField)f;
                 return typeof(IDictionary<,>).MakeGenericType(GetIdealUntypedType(fmap.Key), GetIdealUntypedType(fmap.Value));
@@ -534,16 +546,26 @@ class FieldAssemblerCompiler<TClass> {
             Expression leafExpr;
 
             if(isAtomic) {
+                Expression element = DataConverter.Convert(_dataElementVar, _dataElementVar.Type, collectionElementType);
+
+                // a nullable list element is null below its own definition level, the value is not read then
+                if(schemaField is ListField lf && lf.Item.MaxDefinitionLevel > dlDepth) {
+                    element = Expression.Condition(
+                        Expression.Equal(_dlVar, Expression.Constant(lf.Item.MaxDefinitionLevel)),
+                        element,
+                        Expression.Default(collectionElementType));
+                }
+
                 if(currentVarType.IsArray) {
                     // add element to array
                     leafExpr = Expression.Assign(
                         currentVar,
-                        RebuildArray(currentVar, currentVarType, DataConverter.Convert(_dataElementVar, _dataElementVar.Type, collectionElementType)));
+                        RebuildArray(currentVar, currentVarType, element));
                 } else {
                     // add element to collection - end here
                     leafExpr = Expression.Call(Expression.Convert(currentVar, currentVarType),
                         currentVarType.GetMethod(nameof(IList.Add))!,
-                        DataConverter.Convert(_dataElementVar, _dataElementVar.Type, collectionElementType));
+                        element);
                 }
 
 #if DEBUG
