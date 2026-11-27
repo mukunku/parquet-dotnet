@@ -170,6 +170,23 @@ public class ParquetReaderOnTestFilesTest : TestBase {
             data);
     }
 
+    /// <summary>
+    /// BYTE_ARRAY DECIMAL(5,2) column with values 1.23, empty byte array, null, -1.23. Written by pyarrow 23.0.1 as a
+    /// binary column, then only the footer was rewritten to add the DECIMAL annotation. pyarrow rejects the empty
+    /// value too ("Length of byte array passed to Decimal128::FromBigEndian was 0"). The empty value used to be skipped
+    /// without being counted, shifting -1.23 into the wrong row and then reading past the end of the page.
+    /// </summary>
+    [Fact]
+    public async Task ByteArrayDecimal_EmptyValue_Throws() {
+        using Stream s = OpenTestFile("special/byte_array_decimal_empty_value.parquet");
+        await using ParquetReader r = await ParquetReader.CreateAsync(s);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        ParquetException ex = await Assert.ThrowsAsync<ParquetException>(
+            () => ReadNullableValuesAsync<decimal>(rgr, r.Schema.DataFields[0]));
+        Assert.Equal("column 'd': value 2 is an empty byte array, which is not a valid DECIMAL, file is corrupt", ex.Message);
+    }
+
     [Fact]
     public async Task Read_delta_binary_packed() {
         using Stream s = OpenTestFile("delta_binary_packed.parquet");

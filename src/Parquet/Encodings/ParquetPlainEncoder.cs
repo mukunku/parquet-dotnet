@@ -818,13 +818,14 @@ static class ParquetPlainEncoder {
                     // convert each byte chunk to valid decimal bytes
                     int spos = 0;
                     while(read < data.Length) {
-                        int length = source.ReadInt32(spos);
-                        spos += sizeof(int);
-                        if(length > 0) {
-                            decimal dc = BigDecimal.ToSystemDecimal(source.Slice(spos, length).ToArray(), tse);
-                            spos += length;
-                            data[read++] = dc;
-                        }
+                        Span<byte> value = ReadLengthPrefixedValue(source, ref spos, tse, read, data.Length);
+                        // an empty value is not a valid DECIMAL (pyarrow rejects it too); it used to be skipped
+                        // without being counted, shifting the following values into the wrong rows
+                        if(value.Length == 0)
+                            throw new ParquetException(
+                                $"column '{tse.Name}': value {read + 1} is an empty byte array, which is not a valid DECIMAL, file is corrupt");
+                        data[read] = BigDecimal.ToSystemDecimal(value.ToArray(), tse);
+                        read++;
                     }
                     return read;
                 }
@@ -881,13 +882,14 @@ static class ParquetPlainEncoder {
                     // convert each byte chunk to valid decimal bytes
                     int spos = 0;
                     while(read < data.Length) {
-                        int length = source.ReadInt32(spos);
-                        spos += sizeof(int);
-                        if(length > 0) {
-                            var bd = new BigDecimal(source.Slice(spos, length).ToArray(), tse);
-                            spos += length;
-                            data[read++] = bd;
-                        }
+                        Span<byte> value = ReadLengthPrefixedValue(source, ref spos, tse, read, data.Length);
+                        // an empty value is not a valid DECIMAL (pyarrow rejects it too); it used to be skipped
+                        // without being counted, shifting the following values into the wrong rows
+                        if(value.Length == 0)
+                            throw new ParquetException(
+                                $"column '{tse.Name}': value {read + 1} is an empty byte array, which is not a valid DECIMAL, file is corrupt");
+                        data[read] = new BigDecimal(value.ToArray(), tse);
+                        read++;
                     }
                     return read;
                 }
@@ -938,6 +940,47 @@ static class ParquetPlainEncoder {
         }
     }
 
+    /// <summary>
+    /// Returns the next <paramref name="length"/> bytes of page data and advances <paramref name="offset"/>, throwing
+    /// a <see cref="ParquetException"/> naming the column if the page ends first.
+    /// </summary>
+    /// <param name="source">Page data</param>
+    /// <param name="offset">Position in <paramref name="source"/>, moved past the value</param>
+    /// <param name="length">Length of the value in bytes</param>
+    /// <param name="tse">Column schema element, for the error message</param>
+    /// <param name="valueIndex">Index of the value being read, for the error message</param>
+    /// <param name="expectedCount">Number of values the page should contain, for the error message</param>
+    private static Span<byte> SliceValue(Span<byte> source, ref int offset, int length, SchemaElement tse,
+        int valueIndex, int expectedCount) {
+        if((length < 0) || (offset < 0) || (length > (source.Length - offset)))
+            throw PageDataTooShort(tse, valueIndex, expectedCount);
+
+        Span<byte> value = source.Slice(offset, length);
+        offset += length;
+        return value;
+    }
+
+    /// <summary>
+    /// Reads a BYTE_ARRAY value (4 byte little endian length followed by the bytes) and advances
+    /// <paramref name="offset"/> past it, see <see cref="SliceValue"/>.
+    /// </summary>
+    private static Span<byte> ReadLengthPrefixedValue(Span<byte> source, ref int offset, SchemaElement tse,
+        int valueIndex, int expectedCount) {
+        if((offset < 0) || (offset > (source.Length - sizeof(int))))
+            throw PageDataTooShort(tse, valueIndex, expectedCount);
+
+        int length = source.ReadInt32(offset);
+        if(length < 0)
+            throw new ParquetException(
+                $"column '{tse.Name}': value {valueIndex + 1} has invalid length {length}, file is corrupt");
+        offset += sizeof(int);
+        return SliceValue(source, ref offset, length, tse, valueIndex, expectedCount);
+    }
+
+    private static ParquetException PageDataTooShort(SchemaElement tse, int valuesRead, int expectedCount) =>
+        new ParquetException(
+            $"column '{tse.Name}': page data ends after {valuesRead} of {expectedCount} values, file is corrupt");
+
     public static int Decode(Span<byte> source, Span<byte[]> data, SchemaElement tse) {
         int read = 0;
         int sourceOffset = 0;
@@ -947,21 +990,15 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
             while(read < data.Length) {
-                byte[] el = source.Slice(sourceOffset, length).ToArray();
-                sourceOffset += length;
-                data[read++] = el;
+                Span<byte> value = SliceValue(source, ref sourceOffset, length, tse, read, data.Length);
+                data[read] = value.ToArray();
+                read++;
             }
         } else {
             while(read < data.Length) {
-                int length = source.ReadInt32(sourceOffset);
-                sourceOffset += sizeof(int);
-                if(length > 0) {
-                    byte[] el = source.Slice(sourceOffset, length).ToArray();
-                    sourceOffset += length;
-                    data[read++] = el;
-                } else {
-                    data[read++] = [];
-                }
+                Span<byte> value = ReadLengthPrefixedValue(source, ref sourceOffset, tse, read, data.Length);
+                data[read] = (value.Length > 0) ? value.ToArray() : [];
+                read++;
             }
         }
         return read;
@@ -976,21 +1013,15 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
             while(read < data.Length) {
-                ReadOnlyMemory<byte> el = source.Slice(sourceOffset, length).ToArray();
-                sourceOffset += length;
-                data[read++] = el;
+                Span<byte> value = SliceValue(source, ref sourceOffset, length, tse, read, data.Length);
+                data[read] = value.ToArray();
+                read++;
             }
         } else {
             while(read < data.Length) {
-                int length = source.ReadInt32(sourceOffset);
-                sourceOffset += sizeof(int);
-                if(length > 0) {
-                    ReadOnlyMemory<byte> el = source.Slice(sourceOffset, length).ToArray();
-                    sourceOffset += length;
-                    data[read++] = el;
-                } else {
-                    data[read++] = ReadOnlyMemory<byte>.Empty;
-                }
+                Span<byte> value = ReadLengthPrefixedValue(source, ref sourceOffset, tse, read, data.Length);
+                data[read] = (value.Length > 0) ? value.ToArray() : ReadOnlyMemory<byte>.Empty;
+                read++;
             }
         }
         return read;
@@ -1333,18 +1364,14 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                data[i] = E.GetString(source.Slice(spanIdx, length));
-                spanIdx += length;
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                data[i] = E.GetString(SliceValue(source, ref spanIdx, length, tse, i, data.Length));
             }
 
         } else {
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                int length = source.ReadInt32(spanIdx);
-                spanIdx += sizeof(int);
-                data[i] = E.GetString(source.Slice(spanIdx, length));
-                spanIdx += length;
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                data[i] = E.GetString(ReadLengthPrefixedValue(source, ref spanIdx, tse, i, data.Length));
             }
         }
         return i;
@@ -1365,27 +1392,23 @@ static class ParquetPlainEncoder {
                 throw new InvalidDataException($"type length must be set for {nameof(TType.FIXED_LEN_BYTE_ARRAY)}");
             int length = tse.TypeLength.Value;
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
 
-                Span<byte> elementSpan = source.Slice(spanIdx, length);
+                Span<byte> elementSpan = SliceValue(source, ref spanIdx, length, tse, i, data.Length);
                 char[] charBuffer = new char[System.Text.Encoding.UTF8.GetCharCount(elementSpan)];
                 decoder.GetChars(elementSpan, charBuffer, flush: true);
                 ReadOnlyMemory<char> charMemory = charBuffer.AsMemory();
                 data[i] = charMemory;
-                spanIdx += length;
             }
 
         } else {
 
-            for(int spanIdx = 0; spanIdx < source.Length && i < data.Length; i++) {
-                int length = source.ReadInt32(spanIdx);
-                spanIdx += sizeof(int);
-                Span<byte> elementSpan = source.Slice(spanIdx, length);
+            for(int spanIdx = 0; (spanIdx < source.Length) && (i < data.Length); i++) {
+                Span<byte> elementSpan = ReadLengthPrefixedValue(source, ref spanIdx, tse, i, data.Length);
                 char[] charBuffer = new char[System.Text.Encoding.UTF8.GetCharCount(elementSpan)];
                 decoder.GetChars(elementSpan, charBuffer, flush: true);
                 ReadOnlyMemory<char> charMemory = charBuffer.AsMemory();
                 data[i] = charMemory;
-                spanIdx += length;
             }
         }
         return i;
