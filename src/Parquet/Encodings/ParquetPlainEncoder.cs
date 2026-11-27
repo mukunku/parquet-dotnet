@@ -375,8 +375,7 @@ static class ParquetPlainEncoder {
                 result = BitConverter.GetBytes(days);
                 return true;
             case TType.INT64:
-                long unixTime = value.ToUtc().ToUnixMilliseconds();
-                result = BitConverter.GetBytes(unixTime);
+                result = BitConverter.GetBytes(ToInt64Timestamp(value, tse));
                 return true;
             case TType.INT96:
                 var nano = new NanoTime(value.ToUtc());
@@ -1031,6 +1030,35 @@ static class ParquetPlainEncoder {
         return read;
     }
 
+    /// <summary>
+    /// The INT64 value stored for <paramref name="value"/> in a timestamp column, in the column's unit. Used for both
+    /// data and statistics, so that min/max are always in the same unit as the values (they used to be milliseconds
+    /// for every column). Values are converted to UTC only for UTC adjusted columns (legacy converted types always
+    /// are); other columns store the local wall clock time as is, which is how they are read back.
+    /// </summary>
+    private static long ToInt64Timestamp(DateTime value, SchemaElement tse) {
+        if(tse.LogicalType?.TIMESTAMP is { } timestamp) {
+            if(timestamp.IsAdjustedToUTC)
+                value = value.ToUtc();
+            if(timestamp.Unit.MILLIS is not null)
+                return value.ToUnixMilliseconds();
+            if(timestamp.Unit.MICROS is not null)
+                return value.ToUnixMicroseconds();
+            if(timestamp.Unit.NANOS is not null)
+                return value.ToUnixNanoseconds();
+            throw new ParquetException($"Unexpected TimeUnit: {timestamp.Unit}");
+        }
+        if(tse.IsTimestampMillis())
+            return value.ToUtc().ToUnixMilliseconds();
+        if(tse.IsTimestampMicros())
+            return value.ToUtc().ToUnixMicroseconds();
+        throw new ArgumentException(
+            $"Unsupported {nameof(DateTime)} encoding for schema element. " +
+            $"Type={tse.Type}, ConvertedType={tse.ConvertedType}, " +
+            $"HasLogicalTimestamp={tse.LogicalType?.TIMESTAMP is not null}",
+            nameof(tse));
+    }
+
     public static void Encode(ReadOnlySpan<DateTime> data, Stream destination, SchemaElement tse) {
 
         switch(tse.Type) {
@@ -1042,42 +1070,9 @@ static class ParquetPlainEncoder {
                 }
                 break;
             case TType.INT64:
-                if(tse.LogicalType?.TIMESTAMP is not null) {
-                    foreach(DateTime element in data) {
-                        if(tse.LogicalType.TIMESTAMP.Unit.MILLIS is not null) {
-                            long unixTime = element.ToUnixMilliseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else if(tse.LogicalType.TIMESTAMP.Unit.MICROS is not null) {
-                            long unixTime = element.ToUtc().ToUnixMicroseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else if(tse.LogicalType.TIMESTAMP.Unit.NANOS is not null) {
-                            long unixTime = element.ToUtc().ToUnixNanoseconds();
-                            byte[] raw = BitConverter.GetBytes(unixTime);
-                            destination.Write(raw, 0, raw.Length);
-                        } else {
-                            throw new ParquetException($"Unexpected TimeUnit: {tse.LogicalType.TIMESTAMP.Unit}");
-                        }
-                    }
-                } else if(tse.IsTimestampMillis()) {
-                    foreach(DateTime element in data) {
-                        long unixTime = element.ToUtc().ToUnixMilliseconds();
-                        byte[] raw = BitConverter.GetBytes(unixTime);
-                        destination.Write(raw, 0, raw.Length);
-                    }
-                } else if(tse.IsTimestampMicros()) {
-                    foreach(DateTime element in data) {
-                        long unixTime = element.ToUtc().ToUnixMicroseconds();
-                        byte[] raw = BitConverter.GetBytes(unixTime);
-                        destination.Write(raw, 0, raw.Length);
-                    }
-                } else {
-                    throw new ArgumentException(
-                        $"Unsupported {nameof(DateTime)} encoding for schema element. " +
-                        $"Type={tse.Type}, ConvertedType={tse.ConvertedType}, " +
-                        $"HasLogicalTimestamp={tse.LogicalType?.TIMESTAMP is not null}",
-                        nameof(tse));
+                foreach(DateTime element in data) {
+                    byte[] raw = BitConverter.GetBytes(ToInt64Timestamp(element, tse));
+                    destination.Write(raw, 0, raw.Length);
                 }
                 break;
             case TType.INT96:

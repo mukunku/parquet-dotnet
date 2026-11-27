@@ -80,7 +80,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [765](765.md) | gzip write default compression level changed from Optimal to SmallestSize in 6.0 (undocumented) | 2026-06-05 | Not recovered | 6.2.0 |
 | [766](766.md) | [BUG]: Row group reader failed on string list | 2026-07-05 | Not recovered | |
 | [767](767.md) | DATE logical type incorrectly mapped to DateTime instead of DateOnly | 2026-07-12 | Not recovered | |
-| [769](769.md) | [BUG]: Wrong stats for Timestamp micros | 2026-07-15 | Not recovered | |
+| [769](769.md) | [BUG]: Wrong stats for Timestamp micros | 2026-07-15 | Not recovered | 6.2.0 |
 | [771](771.md) | [BUG]: TreatByteArrayAsString being ignored in specific case. | 2026-07-19 | Not recovered | |
 | [772](772.md) | [Feature request] Allow definitionLevels / nullablity to be user provided | 2026-07-20 | Not recovered | |
 | [773](773.md) | Code examples in README.md do not compile | 2026-07-21 | Not recovered | n/a: docs moved out in 6.1.0 |

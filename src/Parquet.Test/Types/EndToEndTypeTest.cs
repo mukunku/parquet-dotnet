@@ -480,6 +480,39 @@ public class EndToEndTypeTest : TestBase {
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>
+    /// Writing and reading an INT64 timestamp are implemented separately, so every unit is round-tripped to catch them
+    /// disagreeing on the unit or the time zone. The input has sub-microsecond ticks, so a wrong unit changes the value,
+    /// and is local, so a UTC conversion on one side only shifts it. UTC adjusted columns (legacy ones always are)
+    /// read back the UTC time, others the local wall clock time.
+    /// </summary>
+    [Theory]
+    [InlineData(DateTimeFormat.DateAndTime, DateTimeTimeUnit.Millis, true)]
+    [InlineData(DateTimeFormat.DateAndTimeMicros, DateTimeTimeUnit.Micros, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Millis, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Micros, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Nanos, true)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Millis, false)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Micros, false)]
+    [InlineData(DateTimeFormat.Timestamp, DateTimeTimeUnit.Nanos, false)]
+    public async Task Type_int64_timestamp_writes_and_reads_in_every_unit(DateTimeFormat format, DateTimeTimeUnit unit,
+        bool isAdjustedToUtc) {
+        var field = new DateTimeDataField("ts", format, isAdjustedToUtc, unit);
+        DateTime value = new DateTime(2024, 5, 17, 8, 30, 15, DateTimeKind.Local).AddTicks(1_234_567);
+
+        DateTime actual = await WriteReadSingleAsync(field, value);
+
+        DateTime stored = isAdjustedToUtc ? value.ToUniversalTime() : value;
+        long ticksPerUnit = unit switch {
+            DateTimeTimeUnit.Millis => TimeSpan.TicksPerMillisecond,
+            DateTimeTimeUnit.Micros => TimeSpan.TicksPerMicrosecond,
+            _ => 1      // nanoseconds are finer than ticks
+        };
+        var expected = new DateTime(stored.Ticks - (stored.Ticks % ticksPerUnit), stored.Kind);
+        Assert.Equal(expected.Kind, actual.Kind);
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public async Task Type_date_writes_and_reads() {
         var field = new DateTimeDataField("dateDate", DateTimeFormat.Date);
