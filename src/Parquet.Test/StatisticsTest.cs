@@ -90,4 +90,55 @@ public class StatisticsTest : TestBase {
         DataColumnStatistics? dataColumnStatistics = groupReader.GetStatistics(reader.Schema.DataFields[1]);
         Assert.Equal(0, dataColumnStatistics?.NullCount);
     }
+
+    // UUIDs whose min/max differ between the standard (big endian, RFC 4122) byte order and .NET's mixed endian
+    // Guid.ToByteArray() layout. In UUID order the min is 00000001-... and the max ff000000-...
+    private static readonly Guid[] UuidValues = [
+        Guid.Parse("01000000-0000-0000-0000-0000000000ff"),
+        Guid.Parse("00000001-0000-0000-0000-000000000000"),
+        Guid.Parse("ff000000-0000-0000-0000-000000000000"),
+        Guid.Parse("000000ff-ffff-ffff-ffff-ffffffffffff")];
+    private static readonly Guid UuidMin = Guid.Parse("00000001-0000-0000-0000-000000000000");
+    private static readonly Guid UuidMax = Guid.Parse("ff000000-0000-0000-0000-000000000000");
+
+    /// <summary>
+    /// UUID min/max statistics were written in .NET's mixed endian Guid byte order while the data is big endian, so
+    /// other readers saw wrong ranges, e.g. a max smaller than half of the values, which lets query engines wrongly
+    /// skip row groups (#758). They must be stored in the same byte order as the data, as pyarrow does.
+    /// </summary>
+    [Fact]
+    public async Task Uuid_min_max_written_in_uuid_byte_order() {
+        var field = new DataField<Guid>("id");
+        var schema = new ParquetSchema(field);
+        using var ms = new MemoryStream();
+        await using(ParquetWriter w = await ParquetWriter.CreateAsync(schema, ms)) {
+            using ParquetRowGroupWriter rg = w.CreateRowGroup();
+            await rg.WriteAsync<Guid>(field, UuidValues);
+        }
+
+        ms.Position = 0;
+        await using ParquetReader r = await ParquetReader.CreateAsync(ms);
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+        Meta.Statistics stored = rgr.RowGroup.Columns[0].MetaData!.Statistics!;
+        Assert.Equal(UuidMin.ToByteArray(bigEndian: true), stored.MinValue);
+        Assert.Equal(UuidMax.ToByteArray(bigEndian: true), stored.MaxValue);
+
+        DataColumnStatistics? stats = rgr.GetStatistics(r.Schema.DataFields[0]);
+        Assert.Equal(UuidMin, stats?.MinValue);
+        Assert.Equal(UuidMax, stats?.MaxValue);
+    }
+
+    /// <summary>
+    /// UUID statistics written by pyarrow 23.0.1 (the same values as above) read back as Guids. They used to be
+    /// returned as null, as fixed length byte array statistics other than decimals were not decoded.
+    /// </summary>
+    [Fact]
+    public async Task Uuid_min_max_read_from_pyarrow() {
+        await using ParquetReader r = await ParquetReader.CreateAsync(OpenTestFile("special/uuid_statistics_pyarrow.parquet"));
+        using ParquetRowGroupReader rgr = r.OpenRowGroupReader(0);
+
+        DataColumnStatistics? stats = rgr.GetStatistics(r.Schema.DataFields[0]);
+        Assert.Equal(UuidMin, stats?.MinValue);
+        Assert.Equal(UuidMax, stats?.MaxValue);
+    }
 }

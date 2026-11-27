@@ -77,7 +77,7 @@ Issues from the deleted GitHub repository aloneguid/parquet-dotnet, recovered fr
 | [666](666.md) | [BUG]: Unhandled exception: System.InvalidOperationException: Not all columns were written. | 2025-10-29 | Partially recovered | |
 | [721](721.md) | [BUG]: ParquetSerializer.DeserializeAllAsync on file with no rows throws InvalidOperationException | 2026-03-25 | Not recovered | 6.0.0 |
 | [723](723.md) | ThriftCompactProtocolReader.SkipField crashes on corrupted footer from interrupted append | 2026-03-26 | Not recovered | 6.2.0 (likely) |
-| [758](758.md) | [BUG]: Guid/UUID min/max statistics appear to use .NET Guid byte order | 2026-05-21 | Partially recovered | |
+| [758](758.md) | [BUG]: Guid/UUID min/max statistics appear to use .NET Guid byte order | 2026-05-21 | Partially recovered | 6.2.0 |
 | [764](764.md) | [BUG]: DeserializeAsync(rowGroupIndex:) allocates a result list sized to the whole file, causing OOM on large files | 2026-06-05 | Not recovered | |
 | [765](765.md) | gzip write default compression level changed from Optimal to SmallestSize in 6.0 (undocumented) | 2026-06-05 | Not recovered | |
 | [766](766.md) | [BUG]: Row group reader failed on string list | 2026-07-05 | Not recovered | |

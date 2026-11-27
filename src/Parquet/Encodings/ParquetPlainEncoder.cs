@@ -286,7 +286,8 @@ static class ParquetPlainEncoder {
             result = ((Interval)value).GetBytes();
             return true;
         } else if(t == typeof(Guid)) {
-            result = ((Guid)value).ToByteArray();
+            // big endian (RFC 4122) like the data itself, see Encode(ReadOnlySpan<Guid>, ...)
+            result = ((Guid)value).ToByteArray(bigEndian: true);
             return true;
         } else if(t == typeof(string)) {
             result = System.Text.Encoding.UTF8.GetBytes((string)value);
@@ -331,6 +332,9 @@ static class ParquetPlainEncoder {
             return true;
         } else if(tse.Type == TType.FLOAT) {
             result = BitConverter.ToSingle(value, 0);
+            return true;
+        } else if((tse.Type == TType.FIXED_LEN_BYTE_ARRAY) && (tse.LogicalType?.UUID != null) && (value.Length == 16)) {
+            result = new Guid(value, bigEndian: true);
             return true;
         } else if(tse.Type == TType.BYTE_ARRAY)
             if(tse.IsString()) {
